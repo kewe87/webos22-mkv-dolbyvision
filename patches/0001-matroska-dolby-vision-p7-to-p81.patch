@@ -1,0 +1,616 @@
+diff -ruN lg-webos22/matroska-demux.c matroska/matroska-demux.c
+--- lg-webos22/matroska-demux.c	2026-10-25 19:29:51.697146737 +0100
++++ matroska/matroska-demux.c	2026-10-25 19:29:51.767063280 +0100
+@@ -51,6 +51,8 @@
+ 
+ #include <math.h>
+ #include <string.h>
++#include <stdio.h>
++#include <stdarg.h>
+ #include <glib/gprintf.h>
+ 
+ #include <gst/base/base.h>
+@@ -184,6 +186,14 @@
+ static const gchar *gst_matroska_track_encryption_cipher_mode_name (gint val);
+ static const gchar *gst_matroska_track_encoding_scope_name (gint val);
+ 
++#ifdef DOLBYHDR_SUPPORT
++static void gst_matroska_demux_reset_dolby (GstMatroskaDemux * demux);
++static GstFlowReturn gst_matroska_demux_parse_block_addition_mapping
++    (GstMatroskaDemux * demux, GstEbmlRead * ebml);
++static void gst_matroska_demux_prepare_dolby_track (GstMatroskaDemux * demux,
++    GstMatroskaTrackContext * context);
++#endif
++
+ /* stream methods */
+ static void gst_matroska_demux_reset (GstElement * element);
+ static gboolean perform_seek_to_offset (GstMatroskaDemux * demux,
+@@ -271,6 +281,54 @@
+       "GStreamer maintainers <gstreamer-devel@lists.freedesktop.org>");
+ }
+ 
++#ifdef DOLBYHDR_SUPPORT
++#define MATROSKA_DV_LOG "/tmp/matroska-dv.log"
++
++static void
++matroska_dv_log (const gchar * format, ...)
++    G_GNUC_PRINTF (1, 2);
++
++static void
++matroska_dv_log (const gchar * format, ...)
++{
++  FILE *f;
++  va_list args;
++
++  f = fopen (MATROSKA_DV_LOG, "a");
++  if (f == NULL)
++    return;
++
++  va_start (args, format);
++  vfprintf (f, format, args);
++  va_end (args);
++  fputc ('\n', f);
++  fclose (f);
++}
++
++static void
++get_smart_property_cb (GstPad * pad, GstPad * peer, gpointer usr_data)
++{
++  GstSmartPropertiesReturn res;
++  GstMatroskaDemux *demux = GST_MATROSKA_DEMUX (usr_data);
++  gboolean support = FALSE;
++
++  res = gst_element_get_smart_properties (GST_ELEMENT_CAST (demux),
++      "dolby-vision-support", &support, NULL);
++
++  if (res == GST_SMART_PROPERTIES_OK) {
++    demux->dolby_vision_support = support;
++    demux->dolby_vision_support_known = TRUE;
++  } else {
++    GST_WARNING_OBJECT (demux, "failed to get dolby-vision-support (%d)", res);
++  }
++
++  GST_INFO_OBJECT (demux, "dolby-vision-support = %d (query result %d)",
++      demux->dolby_vision_support, res);
++  matroska_dv_log ("smart property dolby-vision-support=%d result=%d",
++      support, res);
++}
++#endif
++
+ static void
+ gst_matroska_demux_init (GstMatroskaDemux * demux)
+ {
+@@ -300,6 +358,14 @@
+   demux->flowcombiner = gst_flow_combiner_new ();
+   demux->thumbnail_mode = FALSE;
+ 
++#ifdef DOLBYHDR_SUPPORT
++  /* NOTE: smart-property values are not reset in _reset () */
++  demux->dolby_vision_support = FALSE;
++  demux->dolby_vision_support_known = FALSE;
++  g_signal_connect (G_OBJECT (demux->common.sinkpad), "linked",
++      (GCallback) get_smart_property_cb, demux);
++#endif
++
+   /* finish off */
+   gst_matroska_demux_reset (GST_ELEMENT (demux));
+ }
+@@ -387,6 +453,10 @@
+   demux->scan_next_cluster_push = FALSE;
+   demux->is_flushing = FALSE;
+   gst_flow_combiner_clear (demux->flowcombiner);
++
++#ifdef DOLBYHDR_SUPPORT
++  gst_matroska_demux_reset_dolby (demux);
++#endif
+ }
+ 
+ static GstBuffer *
+@@ -1142,6 +1212,11 @@
+   g_queue_init (&context->protection_event_queue);
+   context->protection_info = NULL;
+ 
++#ifdef DOLBYHDR_SUPPORT
++  /* Dolby Vision configuration is per TrackEntry */
++  gst_matroska_demux_reset_dolby (demux);
++#endif
++
+   GST_DEBUG_OBJECT (demux, "Parsing a TrackEntry (%d tracks parsed so far)",
+       demux->common.num_streams);
+ 
+@@ -1866,6 +1941,13 @@
+         break;
+       }
+ 
++#ifdef DOLBYHDR_SUPPORT
++        /* Retrieve Dolby Vision config data from BlockAdditionMapping */
++      case GST_MATROSKA_ID_BLOCKADDITIONMAPPING:
++        ret = gst_matroska_demux_parse_block_addition_mapping (demux, ebml);
++        break;
++#endif
++
+       default:
+         GST_WARNING ("Unknown TrackEntry subelement 0x%x - ignoring", id);
+         /* pass-through */
+@@ -2088,6 +2170,18 @@
+ 
+   context->caps = caps;
+ 
++#ifdef DOLBYHDR_SUPPORT
++  /* Prepare Dolby HDR related src caps */
++  if (context->type == GST_MATROSKA_TRACK_TYPE_VIDEO) {
++    matroska_dv_log ("video track %" G_GUINT64_FORMAT " codec=%s "
++        "dolby-config=%d thumbnail-mode=%u", context->num,
++        GST_STR_NULL (context->codec_id), demux->is_dolby_hdr,
++        demux->thumbnail_mode);
++    if (demux->is_dolby_hdr && context->caps != NULL)
++      gst_matroska_demux_prepare_dolby_track (demux, context);
++  }
++#endif
++
+   /* tadaah! */
+   *dest_context = context;
+   return ret;
+@@ -8450,6 +8544,367 @@
+   return en ? en->value_nick : NULL;
+ }
+ 
++#ifdef DOLBYHDR_P7_TO_P81
++/* libdovi C API (quietvoid/dovi_tool, crate dolby_vision, feature capi),
++ * linked statically */
++typedef struct DoviRpuOpaque DoviRpuOpaque;
++typedef struct
++{
++  const guint8 *data;
++  gsize len;
++} DoviData;
++
++extern DoviRpuOpaque *dovi_parse_unspec62_nalu (const guint8 * buf, gsize len);
++extern const gchar *dovi_rpu_get_error (const DoviRpuOpaque * ptr);
++extern gint32 dovi_convert_rpu_with_mode (DoviRpuOpaque * ptr, guint8 mode);
++extern const DoviData *dovi_write_unspec62_nalu (DoviRpuOpaque * ptr);
++extern void dovi_data_free (const DoviData * data);
++extern void dovi_rpu_free (DoviRpuOpaque * ptr);
++
++#define MATROSKA_DV_DISABLE_P7 "/media/developer/mkvdv/disable-p7"
++
++static void
++matroska_dovi_append_nal (GByteArray * arr, guint nls, const guint8 * nal,
++    gsize len)
++{
++  guint8 hdr[4];
++  guint i;
++
++  for (i = 0; i < nls; i++)
++    hdr[i] = (len >> (8 * (nls - 1 - i))) & 0xff;
++  g_byte_array_append (arr, hdr, nls);
++  g_byte_array_append (arr, nal, len);
++}
++
++/* postprocess_frame for HEVC (hvc1, length prefixed) profile 7 tracks:
++ * drops the enhancement layer (UNSPEC63 wrapper and nuh_layer_id > 0) and
++ * rewrites every RPU (UNSPEC62) to profile 8.1 like `dovi_tool -m 2`.
++ * An RPU that cannot be converted is dropped, never forwarded as profile 7.
++ * Malformed frames are passed through unchanged. */
++static GstFlowReturn
++gst_matroska_demux_dovi_p7_to_p81 (GstElement * element,
++    GstMatroskaTrackContext * stream, GstBuffer ** buf)
++{
++  GstMatroskaTrackVideoContext *vctx = (GstMatroskaTrackVideoContext *) stream;
++  guint nls = vctx->dovi_nal_length_size;
++  GstMapInfo map;
++  GByteArray *arr;
++  GstBuffer *out;
++  gsize pos = 0, out_len;
++  gboolean changed = FALSE;
++
++  if (!vctx->dovi_p7_to_p81 || nls < 1 || nls > 4)
++    return GST_FLOW_OK;
++  if (!gst_buffer_map (*buf, &map, GST_MAP_READ))
++    return GST_FLOW_OK;
++
++  arr = g_byte_array_sized_new (map.size + 64);
++
++  while (pos + nls <= map.size) {
++    guint32 nal_len = 0;
++    const guint8 *nal;
++    guint8 type, layer;
++    guint i;
++
++    for (i = 0; i < nls; i++)
++      nal_len = (nal_len << 8) | map.data[pos + i];
++    pos += nls;
++    if (nal_len < 2 || nal_len > map.size - pos)
++      goto passthrough;
++
++    nal = map.data + pos;
++    type = (nal[0] >> 1) & 0x3f;
++    layer = ((nal[0] & 0x01) << 5) | (nal[1] >> 3);
++
++    if (type == 63 || layer > 0) {
++      vctx->dovi_el_dropped++;
++      changed = TRUE;
++    } else if (type == 62) {
++      DoviRpuOpaque *rpu = dovi_parse_unspec62_nalu (nal, nal_len);
++      const DoviData *d = NULL;
++      const gchar *err = rpu ? dovi_rpu_get_error (rpu) : "no rpu";
++
++      if (err == NULL && dovi_convert_rpu_with_mode (rpu, 2) == 0) {
++        d = dovi_write_unspec62_nalu (rpu);
++        err = dovi_rpu_get_error (rpu);
++      }
++
++      if (err == NULL && d != NULL && d->data != NULL && d->len >= 2
++          && (nls == 4 || d->len < ((gsize) 1 << (8 * nls)))) {
++        matroska_dovi_append_nal (arr, nls, d->data, d->len);
++        vctx->dovi_rpu_converted++;
++      } else {
++        vctx->dovi_rpu_failed++;
++        if (vctx->dovi_rpu_failed <= 3)
++          matroska_dv_log ("p7->8.1: RPU dropped (%s)", GST_STR_NULL (err));
++      }
++
++      if (d != NULL)
++        dovi_data_free (d);
++      if (rpu != NULL)
++        dovi_rpu_free (rpu);
++      changed = TRUE;
++    } else {
++      matroska_dovi_append_nal (arr, nls, nal, nal_len);
++    }
++    pos += nal_len;
++  }
++
++  if (!changed || pos != map.size)
++    goto passthrough;
++
++  gst_buffer_unmap (*buf, &map);
++
++  out_len = arr->len;
++  out = gst_buffer_new_wrapped (g_byte_array_free (arr, FALSE), out_len);
++  gst_buffer_copy_into (out, *buf, GST_BUFFER_COPY_METADATA, 0, -1);
++  gst_buffer_unref (*buf);
++  *buf = out;
++
++  vctx->dovi_frames++;
++  if (vctx->dovi_frames == 1 || vctx->dovi_frames % 2000 == 0)
++    matroska_dv_log ("p7->8.1: frames=%" G_GUINT64_FORMAT " rpu_converted=%"
++        G_GUINT64_FORMAT " rpu_failed=%" G_GUINT64_FORMAT " el_nal_dropped=%"
++        G_GUINT64_FORMAT, vctx->dovi_frames, vctx->dovi_rpu_converted,
++        vctx->dovi_rpu_failed, vctx->dovi_el_dropped);
++  return GST_FLOW_OK;
++
++passthrough:
++  gst_buffer_unmap (*buf, &map);
++  g_byte_array_free (arr, TRUE);
++  return GST_FLOW_OK;
++}
++
++/* Sets up the conversion for an HEVC track with an hvcC codec private.
++ * Returns FALSE if the track cannot be converted. */
++static gboolean
++gst_matroska_demux_setup_dovi_p7_to_p81 (GstMatroskaDemux * demux,
++    GstMatroskaTrackContext * context)
++{
++  GstMatroskaTrackVideoContext *vctx =
++      (GstMatroskaTrackVideoContext *) context;
++  const guint8 *priv = context->codec_priv;
++  guint nls;
++
++  if (g_file_test (MATROSKA_DV_DISABLE_P7, G_FILE_TEST_EXISTS))
++    return FALSE;
++  if (g_strcmp0 (context->codec_id, GST_MATROSKA_CODEC_ID_VIDEO_MPEGH_HEVC))
++    return FALSE;
++  if (priv == NULL || context->codec_priv_size < 23 || priv[0] != 1)
++    return FALSE;
++  nls = (priv[21] & 0x03) + 1;
++  if (nls == 3)
++    return FALSE;
++  if (context->postprocess_frame != NULL)
++    return FALSE;
++
++  vctx->dovi_nal_length_size = nls;
++  vctx->dovi_p7_to_p81 = TRUE;
++  context->postprocess_frame = gst_matroska_demux_dovi_p7_to_p81;
++  return TRUE;
++}
++#endif
++
++#ifdef DOLBYHDR_SUPPORT
++/* BlockAddIDType values (ISO BMFF box FourCCs) */
++#define MATROSKA_BLOCK_ADD_ID_TYPE_DVCC 0x64766343      /* 'dvcC' */
++#define MATROSKA_BLOCK_ADD_ID_TYPE_DVVC 0x64767643      /* 'dvvC' */
++#define MATROSKA_BLOCK_ADD_ID_TYPE_DVWC 0x64767743      /* 'dvwC' */
++
++static void
++gst_matroska_demux_reset_dolby (GstMatroskaDemux * demux)
++{
++  demux->is_dolby_hdr = FALSE;
++  demux->dv_profile = -1;
++  demux->dv_level = -1;
++  demux->rpu_present_flag = FALSE;
++  demux->el_present_flag = FALSE;
++  demux->bl_present_flag = FALSE;
++  demux->dv_bl_signal_comp_id = -1;
++  demux->dv_box_conf = OTHER;
++}
++
++/* Parses one BlockAdditionMapping of a TrackEntry. The values are only
++ * committed when the mapping really describes a Dolby Vision configuration,
++ * so other block additions (e.g. HDR10+ ITU-T T.35) cannot overwrite them. */
++static GstFlowReturn
++gst_matroska_demux_parse_block_addition_mapping (GstMatroskaDemux * demux,
++    GstEbmlRead * ebml)
++{
++  GstFlowReturn ret;
++  guint32 id;
++  gboolean dv_name = FALSE;
++  gboolean have_config = FALSE;
++  enum DolbyBoxConfiguration box_conf = OTHER;
++  guint64 add_id_type = 0;
++  guint8 profile = 0, level = 0, rpu = 0, el = 0, bl = 0, comp_id = 0;
++
++  DEBUG_ELEMENT_START (demux, ebml, "BlockAdditionMapping");
++
++  if ((ret = gst_ebml_read_master (ebml, &id)) != GST_FLOW_OK) {
++    DEBUG_ELEMENT_STOP (demux, ebml, "BlockAdditionMapping", ret);
++    return ret;
++  }
++
++  while (ret == GST_FLOW_OK && gst_ebml_read_has_remaining (ebml, 1, TRUE)) {
++    if ((ret = gst_ebml_peek_id (ebml, &id)) != GST_FLOW_OK)
++      break;
++
++    switch (id) {
++      case GST_MATROSKA_ID_BLOCKADDIDVALUE:{
++        guint64 num;
++
++        if ((ret = gst_ebml_read_uint (ebml, &id, &num)) != GST_FLOW_OK)
++          break;
++        GST_DEBUG_OBJECT (demux, "BlockAddIDValue: %" G_GUINT64_FORMAT, num);
++        break;
++      }
++
++      case GST_MATROSKA_ID_BLOCKADDIDNAME:{
++        gchar *text = NULL;
++
++        if ((ret = gst_ebml_read_ascii (ebml, &id, &text)) != GST_FLOW_OK)
++          break;
++        GST_DEBUG_OBJECT (demux, "BlockAddIDName: %s", GST_STR_NULL (text));
++        if (g_strcmp0 (text, "Dolby Vision configuration") == 0)
++          dv_name = TRUE;
++        g_free (text);
++        break;
++      }
++
++      case GST_MATROSKA_ID_BLOCKADDIDTYPE:{
++        if ((ret =
++                gst_ebml_read_uint (ebml, &id, &add_id_type)) != GST_FLOW_OK)
++          break;
++        GST_DEBUG_OBJECT (demux, "BlockAddIDType: 0x%08" G_GINT64_MODIFIER
++            "x", add_id_type);
++        if (add_id_type == MATROSKA_BLOCK_ADD_ID_TYPE_DVCC)
++          box_conf = DVCC;
++        else if (add_id_type == MATROSKA_BLOCK_ADD_ID_TYPE_DVVC)
++          box_conf = DVVC;
++        else if (add_id_type == MATROSKA_BLOCK_ADD_ID_TYPE_DVWC)
++          box_conf = DVWC;
++        break;
++      }
++
++      case GST_MATROSKA_ID_BLOCKADDIDEXTRADATA:{
++        guint8 *data = NULL;
++        guint64 size = 0;
++
++        if ((ret =
++                gst_ebml_read_binary (ebml, &id, &data, &size)) != GST_FLOW_OK)
++          break;
++
++        /* DOVIDecoderConfigurationRecord */
++        if (data != NULL && size >= 5) {
++          profile = (data[2] >> 1) & 0x7f;
++          level = ((data[2] & 0x01) << 5) | ((data[3] >> 3) & 0x1f);
++          rpu = (data[3] >> 2) & 0x01;
++          el = (data[3] >> 1) & 0x01;
++          bl = data[3] & 0x01;
++          comp_id = (data[4] >> 4) & 0x0f;
++          have_config = TRUE;
++        } else {
++          GST_WARNING_OBJECT (demux, "BlockAddIDExtraData too short (%"
++              G_GUINT64_FORMAT " bytes)", size);
++        }
++        g_free (data);
++        break;
++      }
++
++      default:
++        ret = gst_matroska_read_common_parse_skip (&demux->common, ebml,
++            "BlockAdditionMapping", id);
++        break;
++    }
++  }
++
++  if ((dv_name || box_conf != OTHER) && have_config) {
++    demux->is_dolby_hdr = TRUE;
++    demux->dv_box_conf = box_conf;
++    demux->dv_profile = profile;
++    demux->dv_level = level;
++    demux->rpu_present_flag = rpu;
++    demux->el_present_flag = el;
++    demux->bl_present_flag = bl;
++    demux->dv_bl_signal_comp_id = comp_id;
++
++    GST_INFO_OBJECT (demux, "Dolby Vision configuration: box_conf = %d, "
++        "profile = %d, level = %d, rpu = %d, el = %d, bl = %d, compat_id = %d",
++        box_conf, profile, level, rpu, el, bl, comp_id);
++    matroska_dv_log ("dolby vision config: box=%d profile=%u level=%u rpu=%u "
++        "el=%u bl=%u compat=%u", box_conf, profile, level, rpu, el, bl,
++        comp_id);
++  } else if (dv_name || box_conf != OTHER) {
++    GST_WARNING_OBJECT (demux, "Dolby Vision mapping without configuration");
++    matroska_dv_log ("dolby vision mapping without configuration record");
++  } else {
++    matroska_dv_log ("other block addition mapping type=0x%08" G_GINT64_MODIFIER
++        "x", add_id_type);
++  }
++
++  DEBUG_ELEMENT_STOP (demux, ebml, "BlockAdditionMapping", ret);
++  return ret;
++}
++
++/* Adds the Dolby Vision caps fields LG's webOS 22 qtdemux uses
++ * (dolby-vision, dolby-vision-profile). Unlike the webOS 25 code this never
++ * posts an error: anything unexpected leaves the caps untouched, so playback
++ * falls back to the previous (HDR10/SDR base layer) behaviour. */
++static void
++gst_matroska_demux_prepare_dolby_track (GstMatroskaDemux * demux,
++    GstMatroskaTrackContext * context)
++{
++  gboolean support;
++  const gchar *decision = NULL;
++  gint caps_profile = demux->dv_profile;
++  gchar *caps_str;
++
++  /* The TV supports Dolby Vision; assume so if the smart property
++   * could not be queried. */
++  support = demux->dolby_vision_support_known ?
++      demux->dolby_vision_support : TRUE;
++
++  if (!support) {
++    decision = "platform reports no Dolby Vision support";
++  } else if (demux->dv_bl_signal_comp_id != 0
++      && demux->dv_bl_signal_comp_id != 1 && demux->dv_bl_signal_comp_id != 2
++      && demux->dv_bl_signal_comp_id != 4 && demux->dv_bl_signal_comp_id != 6) {
++    decision = "unsupported BL signal compatibility id";
++  } else if (demux->dv_profile == 7) {
++#ifdef DOLBYHDR_P7_TO_P81
++    /* UHD Blu-ray (BL compatibility 6): convert to 8.1 on the fly */
++    if (demux->dv_bl_signal_comp_id == 6
++        && gst_matroska_demux_setup_dovi_p7_to_p81 (demux, context))
++      caps_profile = 8;
++    else
++#endif
++      /* Same as LG: profile 7 is played from the HDR10 base layer */
++      decision = "profile 7 is played as HDR10";
++  } else if ((demux->dv_profile < 7 && demux->dv_box_conf == DVVC)
++      || (demux->dv_profile > 7 && demux->dv_box_conf == DVCC)) {
++    decision = "profile and box configuration do not match";
++  }
++
++  if (decision == NULL) {
++    gst_caps_set_simple (context->caps, "dolby-vision", G_TYPE_BOOLEAN, TRUE,
++        "dolby-vision-profile", G_TYPE_INT, caps_profile, NULL);
++    decision = caps_profile != demux->dv_profile ?
++        "dolby-vision set, converting profile 7 to 8.1" : "dolby-vision set";
++  }
++
++  caps_str = gst_caps_to_string (context->caps);
++  GST_INFO_OBJECT (demux, "Dolby Vision profile %d.%d (support %d/%d): %s, "
++      "caps %s", demux->dv_profile, demux->dv_bl_signal_comp_id, support,
++      demux->dolby_vision_support_known, decision, caps_str);
++  matroska_dv_log ("decision profile=%d.%d support=%d known=%d: %s",
++      demux->dv_profile, demux->dv_bl_signal_comp_id, support,
++      demux->dolby_vision_support_known, decision);
++  matroska_dv_log ("caps %s", caps_str);
++  g_free (caps_str);
++}
++#endif
++
+ gboolean
+ gst_matroska_demux_plugin_init (GstPlugin * plugin)
+ {
+diff -ruN lg-webos22/matroska-demux.h matroska/matroska-demux.h
+--- lg-webos22/matroska-demux.h	2026-10-25 19:29:51.615921190 +0100
++++ matroska/matroska-demux.h	2026-10-25 19:29:51.734415641 +0100
+@@ -43,6 +43,21 @@
+ #define GST_IS_MATROSKA_DEMUX_CLASS(klass) \
+   (G_TYPE_CHECK_CLASS_TYPE ((klass), GST_TYPE_MATROSKA_DEMUX))
+ 
++/* DolbyHDR support, ported from LG webOS 25 */
++#define DOLBYHDR_SUPPORT
++/* Convert Dolby Vision profile 7 to 8.1 on the fly (libdovi, dovi_tool mode 2) */
++#define DOLBYHDR_P7_TO_P81
++
++#ifdef DOLBYHDR_SUPPORT
++enum DolbyBoxConfiguration
++{
++  OTHER,
++  DVCC,
++  DVVC,
++  DVWC
++};
++#endif
++
+ typedef struct _GstMatroskaDemux {
+   GstElement              parent;
+ 
+@@ -143,6 +158,22 @@
+   gboolean                 is_rate_changed;
+   gboolean                 scan_next_cluster_push;
+   gboolean                 is_flushing;
++
++#ifdef DOLBYHDR_SUPPORT
++  /* platform capability from smart property */
++  gboolean                 dolby_vision_support;
++  gboolean                 dolby_vision_support_known;
++
++  /* Dolby Vision configuration of the track being parsed */
++  gboolean                 is_dolby_hdr;
++  gint8                    dv_profile;
++  gint8                    dv_level;
++  gboolean                 rpu_present_flag;
++  gboolean                 el_present_flag;
++  gboolean                 bl_present_flag;
++  gint8                    dv_bl_signal_comp_id;
++  enum DolbyBoxConfiguration dv_box_conf;
++#endif
+ } GstMatroskaDemux;
+ 
+ typedef struct _GstMatroskaDemuxClass {
+diff -ruN lg-webos22/matroska-ids.c matroska/matroska-ids.c
+--- lg-webos22/matroska-ids.c	2026-10-25 19:29:51.664330517 +0100
++++ matroska/matroska-ids.c	2026-10-25 19:29:51.783376095 +0100
+@@ -65,6 +65,12 @@
+   video_context->earliest_time = GST_CLOCK_TIME_NONE;
+   video_context->multiview_mode = GST_VIDEO_MULTIVIEW_MODE_NONE;
+   video_context->multiview_flags = GST_VIDEO_MULTIVIEW_FLAGS_NONE;
++  video_context->dovi_p7_to_p81 = FALSE;
++  video_context->dovi_nal_length_size = 0;
++  video_context->dovi_frames = 0;
++  video_context->dovi_rpu_converted = 0;
++  video_context->dovi_rpu_failed = 0;
++  video_context->dovi_el_dropped = 0;
+   video_context->colorimetry.range = GST_VIDEO_COLOR_RANGE_UNKNOWN;
+   video_context->colorimetry.matrix = GST_VIDEO_COLOR_MATRIX_UNKNOWN;
+   video_context->colorimetry.transfer = GST_VIDEO_TRANSFER_UNKNOWN;
+diff -ruN lg-webos22/matroska-ids.h matroska/matroska-ids.h
+--- lg-webos22/matroska-ids.h	2026-10-25 19:29:51.669853374 +0100
++++ matroska/matroska-ids.h	2026-10-25 19:29:51.831513403 +0100
+@@ -111,6 +111,12 @@
+ #define GST_MATROSKA_ID_CODECDECODEALL             0xAA
+ #define GST_MATROSKA_ID_SEEKPREROLL                0x56BB
+ #define GST_MATROSKA_ID_CODECDELAY                 0x56AA
++/* BlockAdditionMapping (Dolby Vision configuration), ported from webOS 25 */
++#define GST_MATROSKA_ID_BLOCKADDITIONMAPPING       0x41E4
++#define GST_MATROSKA_ID_BLOCKADDIDVALUE            0x41F0
++#define GST_MATROSKA_ID_BLOCKADDIDNAME             0x41A4
++#define GST_MATROSKA_ID_BLOCKADDIDTYPE             0x41E7
++#define GST_MATROSKA_ID_BLOCKADDIDEXTRADATA        0x41ED
+ 
+ /* IDs in the TrackTranslate master */
+ #define GST_MATROSKA_ID_TRACKTRANSLATEEDITIONUID   0x66FC
+@@ -707,6 +713,14 @@
+   GstVideoContentLightLevel content_light_level;
+ 
+   gint valid_color;
++
++  /* Dolby Vision profile 7 -> 8.1 conversion (matroskademux) */
++  gboolean      dovi_p7_to_p81;
++  guint         dovi_nal_length_size;
++  guint64       dovi_frames;
++  guint64       dovi_rpu_converted;
++  guint64       dovi_rpu_failed;
++  guint64       dovi_el_dropped;
+ } GstMatroskaTrackVideoContext;
+ 
+ typedef struct _GstMatroskaTrackAudioContext {
