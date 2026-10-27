@@ -1,3 +1,4 @@
+/* Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later. */
 /* Test der libdovi-Umwandlung Profil 7 -> 8.1 auf dem TV.
  * Aufruf: dovi_test <p7-rpu.bin> [erwartetes-81-rpu.bin]
  * Die .bin-Dateien sind dovi_tool-Testdaten: 4 Byte Startcode + RPU. */

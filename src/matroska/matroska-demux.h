@@ -1,6 +1,7 @@
 /* GStreamer Matroska muxer/demuxer
  * (c) 2003 Ronald Bultje <rbultje@ronald.bitfreak.net>
  * (c) 2011 Debarshi Ray <rishi@gnu.org>
+ * (c) 2026 kewe87 (Dolby Vision support, profile 7 -> 8.1 conversion)
  *
  * matroska-demux.h: matroska file/stream demuxer definition
  *

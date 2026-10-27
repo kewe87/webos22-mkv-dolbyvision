@@ -1,0 +1,47 @@
+<!doctype html>
+<!-- Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later. -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>MKV Dolby Vision Patcher</title>
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <main>
+    <header>
+      <h1>MKV Dolby Vision Patcher</h1>
+      <span id="version"></span>
+    </header>
+    <div id="subtitle"></div>
+    <p id="intro"></p>
+
+    <section id="state" class="card">
+      <div id="state-title">…</div>
+      <div id="state-text"></div>
+      <p id="message" hidden></p>
+    </section>
+
+    <div class="columns">
+      <section class="card" id="actions"></section>
+      <section class="card">
+        <table id="details"></table>
+        <pre id="log" hidden></pre>
+      </section>
+    </div>
+
+  </main>
+  <footer id="footer"></footer>
+
+  <div id="dialog" hidden>
+    <div class="card">
+      <p id="dialog-text"></p>
+      <div class="row">
+        <button id="dialog-yes"></button>
+        <button id="dialog-no"></button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

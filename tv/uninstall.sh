@@ -1,6 +1,10 @@
 #!/bin/sh
-# Removes the autostart link and files. LG's original is active again after a reboot.
-DIR=/media/developer/mkvdv
-rm -f /var/lib/webosbrew/init.d/40-mkv-dolbyvision
-rm -rf "$DIR"
-echo "Removed. Reboot the TV to return to LG's original demuxer."
+# Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later.
+# Removes the autostart link and files. LG's original is active again right away
+# if nothing is playing, otherwise after a reboot. Same as "ctl.sh uninstall".
+SRC=$(cd "$(dirname "$0")" && pwd)
+if [ -f "$SRC/ctl.sh" ]; then
+  sh "$SRC/ctl.sh" uninstall
+else
+  sh /media/developer/mkvdv/ctl.sh uninstall
+fi
