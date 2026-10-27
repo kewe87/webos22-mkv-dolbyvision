@@ -75,7 +75,7 @@ def with_parents(files):
     for name, _, _ in files:
         parts = name.strip("./").split("/")[:-1]
         for i in range(1, len(parts) + 1):
-            dirs.add("./" + "/".join(parts[:i]) + "/")
+            dirs.add("/".join(parts[:i]) + "/")
     return [(d, None, 0o755) for d in sorted(dirs)] + sorted(files)
 
 
@@ -94,7 +94,7 @@ def main():
     scripts = tar_gz([("tv/", None, 0o755)] + tv)
 
     # ipk
-    base = "./usr/palm/applications/%s/" % app_id
+    base = "usr/palm/applications/%s/" % app_id
     files = []
     for f in sorted(os.listdir(os.path.join(ROOT, "app"))):
         p = os.path.join(ROOT, "app", f)
@@ -111,7 +111,7 @@ def main():
         "app": app_id, "id": app_id, "loc_name": app["title"],
         "package_format_version": 2, "vendor": app["vendor"], "version": version,
     }
-    files.append(("./usr/palm/packages/%s/packageinfo.json" % app_id,
+    files.append(("usr/palm/packages/%s/packageinfo.json" % app_id,
                   json.dumps(pkginfo, indent=2).encode() + b"\n", 0o644))
     data_tgz = tar_gz(with_parents(files))
     size = sum(len(d) for _, d, _ in files)
@@ -121,7 +121,7 @@ def main():
         "webOS-Package-Format-Version: 2\nwebOS-Packager-Version: x.y.x\n"
         % (app_id, version, (size + 1023) // 1024, app["vendor"], app["appDescription"])
     ).encode()
-    control_tgz = tar_gz([("./", None, 0o755), ("./control", control, 0o644)])
+    control_tgz = tar_gz([("control", control, 0o644)])
     ipk = ar([("debian-binary", b"2.0\n"), ("control.tar.gz", control_tgz), ("data.tar.gz", data_tgz)])
     ipk_name = "%s_%s_all.ipk" % (app_id, version)
 
