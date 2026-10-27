@@ -1,3 +1,4 @@
+# Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later.
 import sys
 src, dst = sys.argv[1], sys.argv[2]
 data = bytearray(open(src, "rb").read())

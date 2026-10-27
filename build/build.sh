@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later.
 # Builds libgstmatroska.so for LG webOS 22 (32-bit ARM userland, GStreamer 1.18.2)
 # with LG's starfish SDK 7.0.0 and LG's target sysroot.
 #

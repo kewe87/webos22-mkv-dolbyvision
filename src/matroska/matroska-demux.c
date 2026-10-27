@@ -3,6 +3,7 @@
  * (c) 2006 Tim-Philipp Müller <tim centricular net>
  * (c) 2008 Sebastian Dröge <slomo@circular-chaos.org>
  * (c) 2011 Debarshi Ray <rishi@gnu.org>
+ * (c) 2026 kewe87 (Dolby Vision support, profile 7 -> 8.1 conversion)
  *
  * matroska-demux.c: matroska file/stream demuxer
  *

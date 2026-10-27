@@ -1,0 +1,14 @@
+{
+  "id": "io.github.kewe87.mkvdv",
+  "version": "0.3.0",
+  "vendor": "kewe87",
+  "type": "web",
+  "main": "index.html",
+  "title": "MKV Dolby Vision Patcher",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "iconColor": "#1b1f3b",
+  "resolution": "1920x1080",
+  "disableBackHistoryAPI": true,
+  "appDescription": "Patches webOS 22 so MKV files play in Dolby Vision instead of HDR10 (root required)"
+}

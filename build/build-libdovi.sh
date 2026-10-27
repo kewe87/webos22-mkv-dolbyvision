@@ -1,4 +1,5 @@
 #!/bin/bash
+# Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later.
 # Builds libdovi (quietvoid/dovi_tool, crate dolby_vision, C API) as a static
 # library for the TV (armv7-unknown-linux-gnueabi, soft-float calling convention,
 # compatible with webOS' softfp userland).
