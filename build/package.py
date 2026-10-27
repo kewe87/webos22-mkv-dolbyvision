@@ -131,7 +131,7 @@ def main():
         "type": "web",
         "title": app["title"],
         "appDescription": app["appDescription"],
-        "iconUri": "%s/raw/main/app/largeIcon.png" % REPO_URL,
+        "iconUri": "https://raw.githubusercontent.com/kewe87/webos22-mkv-dolbyvision/main/app/largeIcon.png",
         "sourceUrl": REPO_URL,
         "rootRequired": True,
         "ipkUrl": ipk_name,
