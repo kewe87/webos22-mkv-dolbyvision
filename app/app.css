@@ -69,6 +69,37 @@ td.mono { font-family: monospace; font-size: 22px; word-break: break-all; }
 #dialog .card { width: 1200px; line-height: 1.45; }
 #dialog .row { display: flex; gap: 24px; margin-top: 30px; }
 
+#diag {
+  position: fixed;
+  top: 0; right: 0; bottom: 0; left: 0;
+  background: rgba(0, 0, 0, 0.78);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+#diag[hidden] { display: none; }
+#diag .card { width: 1400px; line-height: 1.4; }
+#diag-head { font-size: 40px; font-weight: 600; margin-bottom: 24px; }
+#diag-body { display: flex; gap: 44px; align-items: flex-start; }
+#diag-qr {
+  flex: none;
+  width: 496px; height: 496px;
+  background: #fff;
+  padding: 18px;
+  border-radius: 12px;
+}
+#diag-qr[hidden] { display: none; }
+#diag-qr img, #diag-qr canvas, #diag-qr svg {
+  width: 460px !important; height: 460px !important; display: block;
+}
+.diag-info { flex: 1; }
+#diag-intro { margin: 0 0 16px; color: #b9bcd2; font-size: 24px; word-break: break-all; }
+#diag-usb { margin: 0 0 16px; color: #3ccf7a; font-size: 24px; word-break: break-all; }
+#diag-usb[hidden] { display: none; }
+#diag-summary { margin: 0; font-size: 22px; white-space: pre-wrap; word-break: break-word; color: #e8e9f1; }
+#diag-note { color: #f2b33d; font-size: 22px; }
+#diag .row { display: flex; gap: 24px; margin-top: 30px; }
+
 footer {
   position: fixed;
   left: 100px;

@@ -7,6 +7,13 @@ var EXEC = 'luna://org.webosbrew.hbchannel.service/exec';
 var APP_DIR = location.pathname.replace(/\/[^/]*$/, '');
 var CTL = 'sh ' + APP_DIR + '/payload/ctl.sh';
 
+// Diagnostics output mode:
+//   'text'  = the QR encodes the diagnostic text itself (no GitHub link); the
+//             tester can scan it to get the text on a phone, or copy it below
+//   'issue' = the QR opens a pre-filled GitHub issue (the later ship mode)
+//   'off'   = no QR; copy the text or photograph the screen
+var DIAG_QR = 'issue';
+
 var TEXT = {
   en: {
     subtitle: 'Patch for the webOS 22 system player (GStreamer)',
@@ -48,6 +55,18 @@ var TEXT = {
     p7on: 'Profile 7 → 8.1: on',
     p7off: 'Profile 7 → 8.1: off',
     check: 'Run compatibility check',
+    diag: 'Diagnostics',
+    diagHead: 'Send diagnostics',
+    diagIntro: 'Scan the code to open a pre-filled GitHub issue on your phone, check it and send it. Nothing on the TV is changed. Full report on the TV: ',
+    diagTextIntro: 'Scan the code to copy this on your phone, or copy the text below. Nothing on the TV is changed. Full report on the TV: ',
+    diagCopyIntro: 'Copy this text, or take a photo of this screen for the GitHub issue. Nothing on the TV is changed. Full report on the TV: ',
+    diagBody: 'Diagnostics from the MKV Dolby Vision Patcher app. I would like to help test a port to this webOS version.',
+    diagFail: 'The report is too long for a QR code. Please copy the text or photograph the screen.',
+    diagPhoto: 'No QR here – copy the text, or take a photo of this screen and attach it to the issue.',
+    diagUsb: 'Also saved to a USB stick – unplug it and upload this file from a PC: ',
+    diagClose: 'Close',
+    unsupported: 'Diagnostics only',
+    unsupportedText: 'This TV / webOS version is not one of the supported builds, so switching on is not offered here. Use Diagnostics to send a port request.',
     showLog: 'Show log',
     hideLog: 'Hide log',
     reboot: 'Restart TV',
@@ -112,6 +131,18 @@ var TEXT = {
     p7on: 'Profil 7 → 8.1: an',
     p7off: 'Profil 7 → 8.1: aus',
     check: 'Verträglichkeit prüfen',
+    diag: 'Diagnose',
+    diagHead: 'Diagnose senden',
+    diagIntro: 'Scanne den Code, um auf dem Handy ein vorausgefülltes GitHub-Issue zu öffnen, zu prüfen und abzusenden. Am TV wird nichts verändert. Vollständiger Report auf dem TV: ',
+    diagTextIntro: 'Scanne den Code, um das aufs Handy zu kopieren, oder kopiere den Text unten. Am TV wird nichts verändert. Vollständiger Report auf dem TV: ',
+    diagCopyIntro: 'Kopiere diesen Text, oder mach ein Foto vom Bildschirm für das GitHub-Issue. Am TV wird nichts verändert. Vollständiger Report auf dem TV: ',
+    diagBody: 'Diagnose aus der App „MKV Dolby Vision Patcher“. Ich möchte beim Testen eines Ports auf diese webOS-Version helfen.',
+    diagFail: 'Der Report ist zu lang für einen QR-Code. Bitte den Text kopieren oder den Bildschirm fotografieren.',
+    diagPhoto: 'Kein QR hier – kopiere den Text, oder mach ein Foto von diesem Bildschirm und häng es ans Issue.',
+    diagUsb: 'Zusätzlich auf USB-Stick gespeichert – abziehen und diese Datei vom PC hochladen: ',
+    diagClose: 'Schließen',
+    unsupported: 'Nur Diagnose',
+    unsupportedText: 'Dieser TV / diese webOS-Version gehört nicht zu den unterstützten Builds, daher wird Einschalten hier nicht angeboten. Nutze „Diagnose“, um eine Port-Anfrage zu senden.',
     showLog: 'Protokoll anzeigen',
     hideLog: 'Protokoll ausblenden',
     reboot: 'TV neu starten',
@@ -205,19 +236,22 @@ function render() {
   else if (stale) setState('warn', T.rebootOn, T.rebootOnText);
   else if (s.active && s.updateAvailable) setState('warn', T.update, T.updateText);
   else if (s.active) setState('ok', T.active, T.activeText);
-  else if (s.originalKnown === 'unknown') setState('bad', T.notActivated, T.unknownText);
+  else if (s.originalKnown === 'unknown') setState('', T.unsupported, T.unsupportedText);
   else if (wanted) setState('bad', T.notActivated, T.failedText + s.autostartLog);
   else setState('', T.off, T.offText);
 
+  // On a TV the app does not support (unknown original), switching on / installing
+  // is not offered – diagnostics only. Enabling needs a known, tested original.
+  var supported = s.originalKnown !== 'unknown';
   var buttons = [];
   if (s.active && wanted) {
     if (s.updateAvailable) buttons.push([T.install, enable]);
     buttons.push([T.disable, disable]);
-  } else {
+  } else if (supported) {
     buttons.push([T.enable, enable]);
   }
   if (s.installed) buttons.push([s.p7 ? T.p7on : T.p7off, toggleP7]);
-  buttons.push([T.check, check]);
+  buttons.push([T.diag, diag]);
   buttons.push([$('log').hidden ? T.showLog : T.hideLog, toggleLog]);
   if ((s.active && !wanted) || stale) buttons.push([T.reboot, reboot]);
   if (s.installed) buttons.push([T.uninstall, uninstall, 'danger']);
@@ -234,7 +268,7 @@ function render() {
     box.appendChild(el);
   });
   var target = box.children[Math.min(focused || 0, box.children.length - 1)];
-  if ($('dialog').hidden && target) target.focus();
+  if ($('dialog').hidden && $('diag').hidden && target) target.focus();
 
   var known = T.dKnown[s.originalKnown] || s.originalKnown;
   var rows = [
@@ -268,6 +302,7 @@ function confirmDialog(text, yesLabel, noLabel) {
     $('dialog-text').textContent = text;
     $('dialog-yes').textContent = yesLabel || T.yes;
     $('dialog-no').textContent = noLabel || T.no;
+    $('dialog-no').hidden = noLabel === null; // one-button dialog when noLabel is null
     $('dialog').hidden = false;
     (yesLabel ? $('dialog-yes') : $('dialog-no')).focus();
     function done(answer) {
@@ -291,22 +326,18 @@ var closeDialog = null;
 function refresh() {
   return sh('id -u').catch(function () { return ''; }).then(function (uid) {
     rooted = uid.trim() === '0';
-    if (!rooted) { noRoot(); return; }
+    if (!rooted) return noRoot();
     return ctl('status').then(function (s) { tvState = s; render(); });
   });
 }
 
+// Root is mandatory (ctl.sh refuses to run without it). Show the message and
+// close the app – there is nothing useful to do without root.
 function noRoot() {
   tvState = null;
-  setState('bad', T.noRoot, T.noRootText);
-  $('details').innerHTML = '';
-  var box = $('actions');
-  box.innerHTML = '';
-  var el = document.createElement('button');
-  el.textContent = T.retry;
-  el.addEventListener('click', function () { run(null); });
-  box.appendChild(el);
-  if ($('dialog').hidden) el.focus();
+  return confirmDialog(T.noRootText, T.quit, null).then(function () {
+    try { window.close(); } catch (e) { /* ignore */ }
+  });
 }
 
 function run(action) {
@@ -349,6 +380,55 @@ function check() {
   return ctl('check').then(function () { return T.checkOk; }, function () { return T.checkFailed; });
 }
 
+// Read-only diagnostics for a port to another webOS version. Shows a QR code
+// that opens a pre-filled GitHub issue on the tester's phone (their account,
+// they review and send it); the full report is also saved on the TV.
+function diag() {
+  return ctl('probe').then(function (r) { showDiag(r.probe || {}); });
+}
+
+var diagOpen = false;
+function showDiag(p) {
+  var body = (p.summary || '') + '\n\n' + T.diagBody;
+  $('diag-head').textContent = T.diagHead;
+  $('diag-usb').textContent = p.usbSaved ? T.diagUsb + p.usbSaved : '';
+  $('diag-usb').hidden = !p.usbSaved;
+  $('diag-note').textContent = '';
+  $('diag-close').textContent = T.diagClose;
+  $('diag-summary').textContent = body; // the copyable text is always shown
+  var qr = $('diag-qr');
+  qr.innerHTML = '';
+  qr.hidden = true;
+  if (DIAG_QR === 'issue') {
+    var url = 'https://github.com/kewe87/webos22-mkv-dolbyvision/issues/new?title=' +
+      encodeURIComponent(p.title || 'webOS port diagnostics') + '&body=' + encodeURIComponent(body);
+    $('diag-intro').textContent = T.diagIntro + (p.reportPath || '');
+    qr.hidden = false;
+    try { new QRCode(qr, { text: url, width: 460, height: 460, correctLevel: QRCode.CorrectLevel.L }); }
+    catch (e) { qr.hidden = true; $('diag-note').textContent = T.diagFail; }
+  } else if (DIAG_QR === 'text') {
+    // QR carries the diagnostic text itself – no GitHub link, nothing public
+    $('diag-intro').textContent = T.diagTextIntro + (p.reportPath || '');
+    qr.hidden = false;
+    try { new QRCode(qr, { text: body, width: 460, height: 460, correctLevel: QRCode.CorrectLevel.L }); }
+    catch (e) { qr.hidden = true; $('diag-note').textContent = T.diagPhoto; }
+  } else {
+    $('diag-intro').textContent = T.diagCopyIntro + (p.reportPath || '');
+    $('diag-note').textContent = T.diagPhoto;
+  }
+  $('diag').hidden = false;
+  diagOpen = true;
+  $('diag-close').onclick = hideDiag;
+  $('diag-close').focus();
+}
+
+function hideDiag() {
+  $('diag').hidden = true;
+  diagOpen = false;
+  $('diag-close').onclick = null;
+  if (tvState) render();
+}
+
 function toggleLog() {
   if (!$('log').hidden) { showLog(false); return; }
   return sh(CTL + ' log').then(function (out) {
@@ -385,6 +465,7 @@ document.addEventListener('keydown', function (e) {
   if (key === 461 || key === 8) { // Back
     e.preventDefault();
     if (closeDialog) closeDialog();
+    else if (diagOpen) hideDiag();
     else if (!$('log').hidden) { showLog(false); if (tvState) render(); }
     else window.close();
     return;
@@ -392,8 +473,8 @@ document.addEventListener('keydown', function (e) {
   var dir = { 37: -1, 38: -1, 39: 1, 40: 1 }[key];
   if (!dir) return;
   e.preventDefault();
-  var list = closeDialog
-    ? [$('dialog-yes'), $('dialog-no')]
+  var list = closeDialog ? [$('dialog-yes'), $('dialog-no')]
+    : diagOpen ? [$('diag-close')]
     : Array.prototype.slice.call($('actions').children);
   var i = list.indexOf(document.activeElement);
   var next = list[Math.max(0, Math.min(list.length - 1, i + dir))];
@@ -423,7 +504,6 @@ $('footer').textContent = T.footer;
 setState('', T.loading, '');
 busy = true;
 refresh()
-  .catch(function (e) { noRoot(); message(T.error + e.message); })
-  .then(function () { busy = false; return disclaimer(); })
+  .then(function () { busy = false; if (rooted) return disclaimer(); })
   .then(function () { if (LP.show === 'log' && rooted) run(toggleLog); })
-  .catch(function () {});
+  .catch(function (e) { busy = false; message(T.error + (e && e.message ? e.message : e)); });

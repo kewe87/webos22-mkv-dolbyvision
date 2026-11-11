@@ -4,6 +4,8 @@
 # or from the Homebrew Channel app (luna://org.webosbrew.hbchannel.service/exec).
 #
 #   ctl.sh status            JSON status (one line)
+#   ctl.sh probe             read-only diagnostics for a port to another webOS
+#                            version; writes /tmp/mkvdv-probe.txt, prints JSON
 #   ctl.sh enable [--force]  install the replacement next to this script and activate it;
 #                            --force accepts an unknown LG original after a passing check
 #   ctl.sh disable           remove the boot link, deactivate (now if idle, else after reboot)
@@ -23,6 +25,8 @@ DVLOG=/tmp/matroska-dv.log
 
 md5_of() { md5sum < "$1" 2>/dev/null | cut -d' ' -f1; }
 js() { printf '%s' "$1" | tr '\n\r\t' '   ' | sed 's/\\/\\\\/g; s/"/\\"/g'; }
+# like js(), but keeps line breaks as literal \n (for multi-line JSON values)
+jsx() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g; s/\t/\\t/g; s/\r//g' | sed ':a;N;$!ba;s/\n/\\n/g'; }
 tf() { if "$@"; then echo true; else echo false; fi; }
 fail() { echo "{\"ok\":false,\"error\":\"$1\",\"detail\":\"$(js "$2")\"}"; exit 0; }
 
@@ -87,6 +91,131 @@ cmd_status() {
 \"p7\":$(tf [ ! -f "$DIR/disable-p7" ]),\"original\":\"$(js "$om")\",\"originalKnown\":\"$(orig_known "$om")\",\
 \"bundledMd5\":\"$(js "$bundled")\",\"installedMd5\":\"$(js "$installed")\",\"runningMd5\":\"$(js "$running")\",\"updateAvailable\":$update,\
 \"webosRelease\":\"$(js "$rel")\",\"gstreamer\":\"$(js "$gst")\",\"autostartLog\":\"$(js "$(cat "$LOG" 2>/dev/null)")\"}"
+}
+
+# Read-only diagnostics for a port request to another webOS version. Changes
+# nothing on the TV (no mount, no writes outside /tmp). Collects exactly the
+# facts a port needs, writes a full report to /tmp, and prints JSON with a
+# compact summary the app turns into a pre-filled GitHub issue (QR code).
+# Every probe is fail-soft: a missing file/command just yields an empty field.
+cmd_probe() {
+  PT=/tmp/mkvdv-probe.txt
+  PJ=/tmp/mkvdv-probe.json
+  PVER=1
+
+  jget() { printf '%s' "$1" | sed -n 's/.*"'"$2"'"[: ]*"\([^"]*\)".*/\1/p' | head -1; }
+  # strip the TV's identifiers from a JSON dump before it can be posted publicly
+  redact_pii() { sed -e 's/\("serial_number"[^"]*"\)[^"]*"/\1<redacted>"/' \
+                     -e 's/\("nduid"[^"]*"\)[^"]*"/\1<redacted>"/' \
+                     -e 's/\("wifi_addr"[^"]*"\)[^"]*"/\1<redacted>"/' \
+                     -e 's/\("wired_addr"[^"]*"\)[^"]*"/\1<redacted>"/'; }
+
+  uname_a=$(uname -a 2>/dev/null)
+  osinfo=$(cat /var/run/nyx/os_info.json 2>/dev/null)
+  devinfo=$(cat /var/run/nyx/device_info.json 2>/dev/null)
+  starfish=$(cat /etc/starfish-release 2>/dev/null)
+  cpuinfo=$(head -n 40 /proc/cpuinfo 2>/dev/null)
+
+  rel=$(jget "$osinfo" webos_release)
+  bld=$(jget "$osinfo" webos_build_id)
+  model=$(jget "$devinfo" modelName)
+  [ -n "$model" ] || model=$(jget "$devinfo" device_name)
+  board=$(jget "$devinfo" boardType)
+  [ -n "$board" ] || board=$(jget "$devinfo" board_type)
+  # the two keys that identify the LG open-source / firmware package to download
+  product=$(jget "$devinfo" product_id)
+  hwid=$(jget "$devinfo" hardware_id)
+  fwver=$(jget "$osinfo" webos_manufacturing_version)
+
+  # turn a shared-library soname tail (e.g. 1802.0) into a version (1.18.2);
+  # $2 is the major. Generic, so it also reads webOS 6's 1.14.x / older GLib.
+  sover() { n=${1%%.*}; case "$n" in ''|*[!0-9]*) echo "${1:-?}";; *) echo "$2.$((n/100)).$((n%100))";; esac; }
+
+  gstlib=$(ls /usr/lib/libgstreamer-1.0.so.0.* 2>/dev/null | sed 's/.*\.so\.0\.//' | head -1)
+  gst=$(sover "$gstlib" 1)
+  gstver=$(gst-inspect-1.0 --version 2>/dev/null | head -2 | tr '\n' ' ')
+  cpuarch=$(printf '%s' "$cpuinfo" | sed -n 's/^CPU architecture[: \t]*\(.*\)/\1/p' | head -1)
+  case "$cpuarch" in 8) cpudesc="ARMv8" ;; 7) cpudesc="ARMv7" ;; *) cpudesc="${cpuarch:-?}" ;; esac
+  cpumodel=$(printf '%s' "$cpuinfo" | sed -n 's/^model name[: \t]*\(.*\)/\1/p' | head -1)
+  [ -n "$cpumodel" ] || cpumodel=$(printf '%s' "$cpuinfo" | sed -n 's/^Hardware[: \t]*\(.*\)/\1/p' | head -1)
+  [ -n "$cpumodel" ] || cpumodel=$(printf '%s' "$cpuinfo" | sed -n 's/^CPU part[: \t]*\(.*\)/part \1/p' | head -1)
+
+  so_md5=$(orig_md5)
+  so_size=$(wc -c < "$TARGET" 2>/dev/null)
+  mkdemux=$(gst-inspect-1.0 matroskademux 2>/dev/null | sed -n 's/^\(  Version\).*/&/p' | head -1)
+
+  # versions of the libraries the playback pipeline is built on, and the actual
+  # video decoder/sink elements: tells us up front how far a port has to reach
+  glib=$(ls /usr/lib/libglib-2.0.so.0.* 2>/dev/null | sed 's/.*\.so\.0\.//' | head -1)
+  glibv=$(sover "$glib" 2)
+  qtver=$(gst-inspect-1.0 qtdemux 2>/dev/null | awk '/^  Version/{print $2; exit}')
+  vids=$(gst-inspect-1.0 2>/dev/null | grep -iE 'decoder|sink' | grep -iE 'video|dolby|hevc|h.?265' | head -25 | tr '\n' ';')
+
+  # the gate: does this platform's media pipeline know Dolby Vision at all?
+  qtdemux=$(gst-inspect-1.0 qtdemux 2>/dev/null)
+  dv_qt=$(printf '%s' "$qtdemux" | grep -ic 'dolby' 2>/dev/null)
+  dv_plugins=$(grep -rl 'dolby-vision' /usr/lib/gstreamer-1.0 2>/dev/null | tr '\n' ' ')
+  dv_cfg=$(luna-send -n 1 -w 3000 luna://com.webos.service.config/getConfigs \
+    '{"configNames":["tv.model.supportDolbyVision","tv.rmm.supportDolbyVision","tv.config.supportDolbyVision"]}' 2>/dev/null | tr '\n' ' ')
+  dv_capable=false
+  { [ "${dv_qt:-0}" -gt 0 ] 2>/dev/null || [ -n "$dv_plugins" ]; } && dv_capable=true
+
+  {
+    echo "== MKV Dolby Vision - port diagnostics (read-only) =="
+    echo "probeVersion: $PVER"
+    echo "date: $(date -u 2>/dev/null)"
+    echo
+    echo "[uname]  $uname_a"
+    echo "[model]  product=$product  device=$model  board=$board  hwid=$hwid"
+    echo "[fw]     manufacturingVersion=$fwver  webOS=$rel  buildId=$bld"
+    echo "[gst]    version=$gst  lib=$gstlib  inspect=$gstver"
+    echo "[glib]   version=$glibv  lib=$glib"
+    echo "[cpu]    arch=$cpudesc ($cpuarch)  model=$cpumodel"
+    echo "[mkv]    $TARGET  md5=$so_md5  size=$so_size"
+    echo "[mkv]    $mkdemux"
+    echo "[qtdemux] version=$qtver"
+    echo "[video]  elements: $vids"
+    echo "[dv]     qtdemuxDolbyLines=$dv_qt  capable=$dv_capable"
+    echo "[dv]     plugins: $dv_plugins"
+    echo "[dv]     config: $dv_cfg"
+    echo
+    echo "---- /etc/starfish-release ----"; printf '%s\n' "$starfish"
+    echo "---- /var/run/nyx/os_info.json ----"; printf '%s\n' "$osinfo"
+    echo "---- /var/run/nyx/device_info.json (serial/ids redacted) ----"; printf '%s\n' "$devinfo" | redact_pii
+    echo "---- /proc/cpuinfo (head) ----"; printf '%s\n' "$cpuinfo"
+    echo "---- qtdemux: dolby lines ----"; printf '%s\n' "$qtdemux" | grep -i dolby 2>/dev/null
+  } > "$PT" 2>/dev/null
+  [ -d "$DIR" ] && cp "$PT" "$DIR/" 2>/dev/null
+
+  # also drop the report onto any plugged-in, writable USB stick, so a tester
+  # without SSH can just pull the stick and upload the file from a PC
+  usb_saved=""
+  for u in $(awk '$2 ~ /^\/(tmp\/usb|media)\// && $3 ~ /^(vfat|exfat|ntfs|fuseblk|msdos|fat)$/ {print $2}' /proc/mounts 2>/dev/null); do
+    if cp "$PT" "$u/mkvdv-probe.txt" 2>/dev/null; then
+      usb_saved="$usb_saved${usb_saved:+; }$u/mkvdv-probe.txt"
+    fi
+  done
+  [ -n "$usb_saved" ] && sync 2>/dev/null
+
+  summary=$(printf 'MKV-DV port probe v%s\nmodel: %s (board %s / %s)\nfirmware: %s (webOS %s build %s)\nGStreamer: %s\nGLib: %s\nCPU: %s / %s\nmatroska md5: %s\nqtdemux: %s\nDV pipeline detected: %s\n(full report incl. decoder elements on TV: %s)' \
+    "$PVER" "${product:-${model:-?}}" "${board:-?}" "${model:-?}" "${fwver:-?}" "${rel:-?}" "${bld:-?}" "${gst:-?}" "${glibv:-?}" "${cpudesc:-?}" "${cpumodel:-?}" "${so_md5:-?}" "${qtver:-?}" "$dv_capable" "$PT")
+  title="webOS port diagnostics: ${product:-${model:-unknown}} fw ${fwver:-?}"
+
+  json="{\"ok\":true,\"probe\":{\
+\"probeVersion\":$PVER,\
+\"productId\":\"$(js "$product")\",\"model\":\"$(js "$model")\",\"board\":\"$(js "$board")\",\"hardwareId\":\"$(js "$hwid")\",\
+\"fwVersion\":\"$(js "$fwver")\",\"webosRelease\":\"$(js "$rel")\",\"buildId\":\"$(js "$bld")\",\
+\"gstreamer\":\"$(js "$gst")\",\"gstreamerLib\":\"$(js "$gstlib")\",\"gstreamerVersion\":\"$(js "$gstver")\",\
+\"glibVersion\":\"$(js "$glibv")\",\"glib\":\"$(js "$glib")\",\"qtdemuxVersion\":\"$(js "$qtver")\",\"videoElements\":\"$(js "$vids")\",\
+\"cpuArch\":\"$(js "$cpuarch")\",\"cpuDesc\":\"$(js "$cpudesc")\",\"cpuModel\":\"$(js "$cpumodel")\",\
+\"uname\":\"$(js "$uname_a")\",\
+\"matroskaPath\":\"$(js "$TARGET")\",\"matroskaMd5\":\"$(js "$so_md5")\",\"matroskaSize\":\"$(js "$so_size")\",\
+\"matroskaInspect\":\"$(js "$mkdemux")\",\
+\"dvQtdemuxLines\":\"$(js "$dv_qt")\",\"dvPlugins\":\"$(js "$dv_plugins")\",\"dvCapable\":$dv_capable,\
+\"reportPath\":\"$(js "$PT")\",\"usbSaved\":\"$(js "$usb_saved")\",\
+\"title\":\"$(jsx "$title")\",\"summary\":\"$(jsx "$summary")\"}}"
+  printf '%s\n' "$json" > "$PJ" 2>/dev/null
+  printf '%s\n' "$json"
 }
 
 cmd_enable() {
@@ -170,6 +299,7 @@ cmd_uninstall() {
 
 case "$1" in
   status)    cmd_status ;;
+  probe)     cmd_probe ;;
   enable)    cmd_enable "$2" ;;
   disable)   cmd_disable ;;
   p7)        cmd_p7 "$2" ;;
@@ -180,6 +310,6 @@ case "$1" in
     echo "== $LOG"; cat "$LOG" 2>/dev/null
     echo "== $DVLOG (last 40 lines)"; tail -n 40 "$DVLOG" 2>/dev/null ;;
   uninstall) cmd_uninstall ;;
-  *) fail usage "status|enable [--force]|disable|p7 on|off|check|log|uninstall" ;;
+  *) fail usage "status|probe|enable [--force]|disable|p7 on|off|check|log|uninstall" ;;
 esac
 exit 0

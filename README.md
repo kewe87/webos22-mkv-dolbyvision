@@ -109,6 +109,7 @@ The same functions over SSH (`/media/developer/mkvdv/ctl.sh` after the first ins
 
 ```sh
 ctl.sh status            # JSON status
+ctl.sh probe             # read-only diagnostics for a port request (writes /tmp/mkvdv-probe.txt)
 ctl.sh enable [--force]  # install/update and activate
 ctl.sh disable           # deactivate
 ctl.sh p7 on|off         # profile 7 -> 8.1 conversion
@@ -176,7 +177,11 @@ The video caps must contain `dolby-vision=(boolean)true, dolby-vision-profile=(i
 ## Limitations
 
 - **webOS 22 only** (GStreamer 1.18.2). Other webOS versions need a build from LG's matching source
-  package.
+  package. The app's **Diagnostics for a port request** button (or `ctl.sh probe`) collects the
+  read-only facts a port needs – webOS/GStreamer version, board/CPU, the original demuxer's checksum
+  and whether the platform exposes a Dolby Vision pipeline at all – and offers them as a pre-filled
+  GitHub issue (shown as a QR code). The full report is written to `/tmp/mkvdv-probe.txt` and, if a
+  USB stick is plugged in, copied onto it as well. It changes nothing on the TV.
 - **Profile 7 dual-track MKVs** (BL and EL as separate tracks) are not converted; the base layer plays
   as HDR10.
 - **Hardware limits:** what the TV's video chip cannot do (e.g. FEL decoding, VVC) cannot be added.
