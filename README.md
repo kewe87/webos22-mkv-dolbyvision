@@ -125,6 +125,12 @@ after reboots, when the app is removed. To remove the patch completely, press **
 (or **Switch off**) *before* uninstalling the app – or later over SSH with
 `sh /media/developer/mkvdv/ctl.sh uninstall`.
 
+## Did it work for you? ⭐
+
+If the patch gave you Dolby Vision from MKV, I'd be glad if you left the repo a **star** – it helps
+other LG owners find the project, and it means a lot. Thank you! If something didn't work, please open an
+[issue](https://github.com/kewe87/webos-mkv-dolbyvision/issues) with the **Diagnostics** report instead.
+
 ## Command line
 
 The same functions over SSH (`/media/developer/mkvdv/ctl.sh` after the first install):
@@ -271,3 +277,8 @@ Wunsch live nach 8.1 umgewandelt.
 - **Status:** Beta, voll getestet auf einem LG 86QNED916QE (Firmware 04.60.91); webOS-6-Build (LG C1)
   experimentell, noch nicht auf echter Hardware bestätigt.
 - **Hinweis:** Entwickelt mit KI-Unterstützung, getestet auf einem echten TV.
+
+**Hat's bei dir funktioniert? ⭐** Wenn der Patch dir Dolby Vision aus MKV gebracht hat, freue ich mich
+über einen **Stern** fürs Repo – so finden andere LG-Besitzer das Projekt leichter. Danke! Hat etwas
+nicht geklappt, gerne stattdessen ein [Issue](https://github.com/kewe87/webos-mkv-dolbyvision/issues)
+mit dem **Diagnose**-Report.
