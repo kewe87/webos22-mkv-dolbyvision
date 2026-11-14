@@ -1,6 +1,6 @@
 #!/bin/sh
 # Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later.
-# webos22-mkv-dolbyvision: overlays LG's matroska demuxer with the patched one
+# webos-mkv-dolbyvision: overlays LG's matroska demuxer with the patched one
 # via a bind mount. RAM only - LG's files are never modified; a reboot without
 # this script restores the original.
 #

@@ -1,11 +1,14 @@
-# webos22-mkv-dolbyvision
+# webos-mkv-dolbyvision
 
-System-wide **Dolby Vision playback from MKV files** on LG TVs running **webOS 22**:
+System-wide **Dolby Vision playback from MKV files** on rooted LG TVs:
 Emby, Plex, the LG media player, USB, DLNA – every app that uses LG's media pipeline.
 Optionally converts **Dolby Vision profile 7** (UHD Blu-ray remuxes) to **profile 8.1** on the fly.
 
+Fully tested on **webOS 22**; an **experimental build for webOS 6 (LG C1)** is also bundled. The app
+picks the right one for your TV automatically (see *Supported TVs* below).
+
 **What gets patched:** not your MKV files – they stay untouched. The patch replaces the MKV demuxer of
-the TV's system player (GStreamer plugin `libgstmatroska.so`) with an improved version, in RAM only.
+the TV's system player (GStreamer plugin `libgstmatroska.so`) with an improved version, **in RAM only**.
 It comes with **MKV Dolby Vision Patcher**, a Homebrew Channel app to switch it on and off.
 
 ![MKV Dolby Vision Patcher on the TV](docs/screenshots/app-status.png)
@@ -15,9 +18,13 @@ It comes with **MKV Dolby Vision Patcher**, a Homebrew Channel app to switch it 
 > the patched demuxer is put over a system file with a bind mount and started by a Homebrew Channel
 > boot script. It does **not** work on non-rooted TVs.
 
-> **Status: beta.** Tested on one TV only: LG 86QNED916QE (board K8HP), webOS 22, firmware 04.60.91.
+> **Status: beta.** Fully tested on one TV: LG 86QNED916QE (board K8HP), webOS 22, firmware 04.60.91.
 > Profile 8.1 works (Dolby Vision logo in Emby). Profile 7 → 8.1 has been verified with dovi_tool test
 > data and a synthetic clip, but **not yet with a real UHD Blu-ray remux**.
+>
+> A second build for the **LG C1 (webOS 6.5.3, GStreamer 1.16.2)** is included but is **experimental**:
+> it was cross-compiled against LG's C1 source and statically verified, but has **not been confirmed on
+> real hardware**. On a C1 the app marks it as experimental; if anything is wrong it falls back to HDR10.
 
 > **Disclaimer: use at your own risk.** This is an unofficial community project, not affiliated with
 > or endorsed by LG or Dolby. It changes how your TV's system player works and requires root access.
@@ -61,32 +68,47 @@ LG fixed this only in webOS 25.
 - Built with LG's own toolchain (starfish SDK 7.0.0, GCC 9.3, Cortex-A9, softfp) against LG's sysroot.
   A rebuild of the unmodified LG source has the same dependencies and symbols as the file on the TV.
 
-## Safety
+## Safety and persistence
 
-- **RAM only:** LG's files are never modified. The bind mount lives in RAM; reboot without the boot
-  script and the original is back. Nothing is written to firmware partitions.
-- **Version check:** the boot script only activates when the original LG file matches a known checksum
-  (`tv/supported-originals.md5`) and the replacement matches its own checksum. An untested original
-  can be accepted on a single TV after the isolated check has passed (`ctl.sh enable --force`, or
-  "Switch on" in the app); it is recorded in `/media/developer/mkvdv/supported-originals.local`.
-- **Fallback behaviour:** unknown or unusual files keep LG's behaviour.
+- **RAM only, not permanent by default:** the patch is a **bind mount in RAM** over LG's plugin. LG's
+  files on disk are never touched. **By default it is active only until the next reboot** – a restart
+  brings LG's original back. Nothing is written to firmware partitions.
+- **Autostart is your choice:** tick **"Load automatically at boot"** in the app (or
+  `ctl.sh enable --persist` / `ctl.sh persist on`) to re-apply the patch at every cold boot. This needs
+  the Homebrew Channel's boot hook (`/var/lib/webosbrew/init.d`), which **depends on the TV's firmware
+  and Homebrew Channel version** – newer firmware has removed/patched this hook, and where it is missing
+  the app says so and the patch stays RAM-only. Recommended flow: switch on *without* autostart, test
+  your Dolby Vision MKVs, and only then enable autostart. (A RAM mount survives standby/wake; only a full
+  cold boot clears it, which is exactly when autostart re-applies it.)
+- **Right build per version:** the plugin is chosen by the TV's **GStreamer version** – the ABI it binds
+  to, identical across TV models of the same webOS major – listed in `tv/variants.tab`. A version
+  confirmed on real hardware is `verified`; an unverified build (e.g. webOS 6/C1) is flagged experimental
+  in the app. Before overlaying, an unverified build or a never-seen original is first loaded in an
+  **isolated GStreamer instance** and only activated if that passes.
+- **Runtime guard:** the boot script re-activates only when the current LG original is exactly the one
+  the patch was enabled against (checksum match) and the replacement matches its own checksum. A firmware
+  update that changes the original simply leaves LG's file in place until you switch on again.
+- **Fallback behaviour:** unknown or unusual files keep LG's behaviour (plain HDR10).
 - **Off switches:**
   - the app's "Switch off" button, or `ctl.sh disable` – everything off (right away if no video is
     playing, otherwise after a reboot);
+  - "Load automatically at boot" unticked, or `ctl.sh persist off` – stays active now, but will not come
+    back after a restart;
   - `touch /media/developer/mkvdv/disable` and reboot – everything off;
   - `touch /media/developer/mkvdv/disable-p7` – only the profile 7 conversion off (from the next
     playback on).
 
 ## Install with the app (recommended)
 
-The release contains the Homebrew Channel app **MKV Dolby Vision Patcher**
-(`io.github.kewe87.mkvdv_<version>_all.ipk`). It shows the status and has buttons to switch on/off,
-toggle profile 7 → 8.1, run the compatibility check, show the logs and remove everything. English or
-German, following the TV's language.
+The release contains the Homebrew Channel app **GStreamer DV MKV Patcher**
+(`io.github.kewe87.mkvdv_<version>_all.ipk`). It shows the status and has buttons to switch on/off, a
+**"Load automatically at boot"** checkbox for autostart, and controls to toggle profile 7 → 8.1, run the
+compatibility check, show the logs and remove everything. English or German, following the TV's language.
 
 1. Install the `.ipk`, e.g. with `ares-install` or by adding the release's
    `io.github.kewe87.mkvdv.manifest.json` URL as a repository in the Homebrew Channel.
-2. Open **MKV Dolby Vision Patcher**, accept the disclaimer and press **Switch on**.
+2. Open **GStreamer DV MKV Patcher**, accept the disclaimer and press **Switch on**. Leave autostart off
+   for the first test; tick **"Load automatically at boot"** once it plays as expected.
 
 | | |
 |---|---|
@@ -108,12 +130,13 @@ after reboots, when the app is removed. To remove the patch completely, press **
 The same functions over SSH (`/media/developer/mkvdv/ctl.sh` after the first install):
 
 ```sh
-ctl.sh status            # JSON status
-ctl.sh probe             # read-only diagnostics for a port request (writes /tmp/mkvdv-probe.txt)
-ctl.sh enable [--force]  # install/update and activate
-ctl.sh disable           # deactivate
-ctl.sh p7 on|off         # profile 7 -> 8.1 conversion
-ctl.sh check             # load the build in an isolated GStreamer instance
+ctl.sh status                   # JSON status
+ctl.sh probe                    # read-only diagnostics for a port request (writes /tmp/mkvdv-probe.txt)
+ctl.sh enable [--persist] [--force]  # install/update and activate in RAM; --persist also adds autostart
+ctl.sh persist on|off           # add / remove autostart later (needs the webOSbrew boot hook)
+ctl.sh disable                  # deactivate (and remove autostart)
+ctl.sh p7 on|off                # profile 7 -> 8.1 conversion
+ctl.sh check                    # load the matching build in an isolated GStreamer instance
 ctl.sh log               # boot script and demuxer logs
 ctl.sh uninstall         # deactivate and delete all files
 ```
@@ -167,17 +190,27 @@ The video caps must contain `dolby-vision=(boolean)true, dolby-vision-profile=(i
 
    ```sh
    build/build-libdovi.sh      # libdovi as a static library (pinned commit)
-   build/build.sh              # -> out/libgstmatroska.so
+   build/build.sh              # -> out/libgstmatroska.so  (primary: webOS 22)
    build/package.py            # -> out/release/ (.so, tv-scripts, .ipk, manifest, SHA256SUMS)
    ```
+
+   The package bundles one plugin per webOS variant and picks the right one on the TV by GStreamer
+   version. Additional variants are built the same way against that version's LG source package and
+   placed at `out/plugins/<variant>/libgstmatroska.so` before `build/package.py`. The experimental
+   **webOS 6 / LG C1** build (GStreamer 1.16.2) uses LG's C1 source (opensource.lge.com, package
+   "webOS 6.0 ON 1.0") with the same `patches/` diff. `tv/variants.tab` records each variant's
+   GStreamer version and whether it is verified on real hardware.
 
 `tests/dovi_test.c` checks the libdovi conversion on the TV against dovi_tool's test data.
 `tests/fakep7.py` turns a profile 8 clip into a synthetic profile 7 clip for pipeline tests.
 
 ## Limitations
 
-- **webOS 22 only** (GStreamer 1.18.2). Other webOS versions need a build from LG's matching source
-  package. The app's **Diagnostics** button (or `ctl.sh probe`) collects, read-only, the facts a port
+- **Verified on webOS 22** (GStreamer 1.18.2); an **experimental webOS 6 / LG C1** build (GStreamer
+  1.16.2) is bundled but not yet confirmed on real hardware. Support is tracked per **GStreamer version**,
+  so once a version is confirmed on one TV it applies to every TV on that version; a version with no
+  bundled build needs one from LG's matching source package. The app's **Diagnostics** button (or
+  `ctl.sh probe`) collects, read-only, the facts a port
   needs – model and firmware, webOS/GStreamer/GLib versions, board/CPU, the original demuxer's checksum,
   the video decoder elements and whether the platform exposes a Dolby Vision pipeline at all – and
   offers them as a pre-filled GitHub issue (shown as a QR code), with the TV's serial number and MAC
@@ -205,8 +238,9 @@ The video caps must contain `dolby-vision=(boolean)true, dolby-vision-profile=(i
 
 ## Kurzfassung (Deutsch)
 
-Systemweites **Dolby Vision aus MKV** für LG-TVs mit **webOS 22**. Profil 7 (UHD-Blu-ray-Remuxe) wird
-auf Wunsch live nach 8.1 umgewandelt.
+Systemweites **Dolby Vision aus MKV** für gerootete LG-TVs. Voll getestet auf **webOS 22**; ein
+**experimenteller Build für webOS 6 (LG C1)** ist mit dabei. Profil 7 (UHD-Blu-ray-Remuxe) wird auf
+Wunsch live nach 8.1 umgewandelt.
 
 **Gepatcht wird nicht die MKV-Datei**, sondern der MKV-Baustein im Systemplayer des TVs
 (GStreamer-Plugin `libgstmatroska.so`). Deine Dateien bleiben unverändert.
@@ -217,15 +251,23 @@ auf Wunsch live nach 8.1 umgewandelt.
 > Dolby. Bereitgestellt ohne jede Gewähr; für Schäden am TV, Datenverlust, Verlust der Garantie oder
 > andere Folgen wird keine Haftung übernommen.
 
-- **Funktionsweise:** LGs eigener webOS-22-Quellcode des MKV-Bausteins, ergänzt um LGs
-  Dolby-Vision-Erkennung aus webOS 25. Der Baustein wird per Bind-Mount nur im Arbeitsspeicher über das
-  Original gelegt.
-- **Bedienung:** Die Homebrew-Channel-App „MKV Dolby Vision Patcher“ (`.ipk` im Release) zeigt den
+- **Funktionsweise:** LGs eigener Quellcode des MKV-Bausteins, ergänzt um LGs Dolby-Vision-Erkennung aus
+  webOS 25. Der Baustein wird per Bind-Mount **nur im Arbeitsspeicher** über das Original gelegt. Das
+  passende Plugin wird anhand der **GStreamer-Version** gewählt (webOS 22 = verifiziert, webOS 6/C1 =
+  experimentell).
+- **Bedienung:** Die Homebrew-Channel-App „GStreamer DV MKV Patcher“ (`.ipk` im Release) zeigt den
   Status und schaltet ein und aus, auf Deutsch, wenn der TV auf Deutsch steht. Sie prüft beim Start, ob
   sie Root-Rechte bekommt; ohne Root ist alles gesperrt. Per SSH geht dasselbe mit `ctl.sh`.
-- **App danach deinstallieren:** geht. Der Patch liegt dann in `/media/developer/mkvdv/` und bleibt
-  aktiv, auch nach Neustarts. Wer ihn ganz loswerden will, drückt vorher „Alles entfernen“.
-- **Rückgängig machen:** In der App „Ausschalten“, oder ein Neustart ohne das Boot-Skript stellt den
+- **Autostart (optional):** Standardmäßig lebt der Patch **nur im RAM und ist nach einem Neustart weg**.
+  Mit dem Haken **„Beim Booten automatisch laden“** (bzw. `ctl.sh persist on`) kommt er nach jedem
+  Kaltstart zurück – sofern die **Firmware/Homebrew-Version den Boot-Hook noch hat** (neuere Firmware hat
+  ihn teils entfernt; dann sagt die App das und es bleibt RAM-only). Empfehlung: erst ohne Autostart
+  testen, dann den Haken setzen.
+- **App danach deinstallieren:** geht. Der Patch liegt dann in `/media/developer/mkvdv/`; mit
+  aktiviertem Autostart bleibt er auch nach Neustarts aktiv. Wer ihn ganz loswerden will, drückt vorher
+  „Alles entfernen“.
+- **Rückgängig machen:** In der App „Ausschalten“, oder ein Neustart (ohne Autostart) stellt den
   Originalzustand her.
-- **Status:** Beta, getestet auf einem LG 86QNED916QE (Firmware 04.60.91).
+- **Status:** Beta, voll getestet auf einem LG 86QNED916QE (Firmware 04.60.91); webOS-6-Build (LG C1)
+  experimentell, noch nicht auf echter Hardware bestätigt.
 - **Hinweis:** Entwickelt mit KI-Unterstützung, getestet auf einem echten TV.

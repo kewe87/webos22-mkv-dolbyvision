@@ -2,13 +2,18 @@
 # Copyright (c) 2026 kewe87. Licensed under LGPL-2.1-or-later.
 """Packages a release into out/release/:
 
-  libgstmatroska.so          the patched demuxer (from build/build.sh)
-  tv-scripts.tar.gz          tv/ scripts for a manual install over SSH
+  libgstmatroska.so          the patched demuxer of the primary variant
+  tv-scripts.tar.gz          tv/ scripts + plugins for a manual install over SSH
   <app id>_<version>_all.ipk Homebrew Channel app (app/ + payload/)
   <app id>.manifest.json     manifest for the webosbrew apps repo
   SHA256SUMS
 
-Usage: build/package.py [path/to/libgstmatroska.so]
+The payload bundles ONE plugin per supported webOS variant under
+payload/plugins/<variant>/, plus the catalog files originals.md5 (original-md5 ->
+variant) and variants.tab (variant -> GStreamer version). ctl.sh picks the
+variant that matches the TV at enable time.
+
+Usage: build/package.py [path/to/webos22/libgstmatroska.so]
 Needs only the Python standard library; the archives are reproducible.
 """
 import gzip
@@ -21,11 +26,21 @@ import tarfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "out", "release")
-SO = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "out", "libgstmatroska.so")
-REPO_URL = "https://github.com/kewe87/webos22-mkv-dolbyvision"
+REPO_URL = "https://github.com/kewe87/webos-mkv-dolbyvision"
 MTIME = 1792886400  # fixed timestamp for reproducible archives
 
 EXECUTABLE = {"ctl.sh", "autostart.sh", "install.sh", "uninstall.sh"}
+
+# (variant id, source .so path, is primary). A variant whose .so is missing is
+# skipped (so the build still works with only the webOS 22 plugin present).
+PRIMARY_SO = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "out", "libgstmatroska.so")
+# Variants are named by GStreamer version (what the plugin binds to), not TV model.
+VARIANTS = [
+    ("gst-1.18.2", PRIMARY_SO, True),
+    # additional variants are placed under out/plugins/<variant>/libgstmatroska.so
+    # (gitignored, built separately); skipped if absent.
+    ("gst-1.16.2", os.path.join(ROOT, "out", "plugins", "gst-1.16.2", "libgstmatroska.so"), False),
+]
 
 
 def read(path):
@@ -79,19 +94,58 @@ def with_parents(files):
     return [(d, None, 0o755) for d in sorted(dirs)] + sorted(files)
 
 
+def present_variants():
+    out = []
+    for vid, path, primary in VARIANTS:
+        if os.path.isfile(path):
+            out.append((vid, read(path), primary))
+        elif primary:
+            sys.exit("missing primary plugin %s - run build/build.sh first" % path)
+        else:
+            print("note: variant %s skipped (%s not found)" % (vid, path))
+    return out
+
+
+def filter_catalog(raw, present, col):
+    """keep comment/blank lines and data rows whose variant (1-based column `col`)
+    is in the present set, so we never advertise a variant we did not bundle."""
+    keep = []
+    for line in raw.decode("utf-8").splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            keep.append(line)
+            continue
+        parts = s.split()
+        if len(parts) >= col and parts[col - 1] in present:
+            keep.append(line)
+    return ("\n".join(keep) + "\n").encode("utf-8")
+
+
 def main():
-    if not os.path.isfile(SO):
-        sys.exit("missing %s - run build/build.sh first" % SO)
     os.makedirs(OUT, exist_ok=True)
     app = json.loads(read(os.path.join(ROOT, "app", "appinfo.json")))
     app_id, version = app["id"], app["version"]
-    so = read(SO)
 
-    # tv-scripts.tar.gz
+    variants = present_variants()
+    present_ids = {vid for vid, _, _ in variants}
+    primary_so = next(so for vid, so, primary in variants if primary)
+
+    originals = filter_catalog(text(os.path.join(ROOT, "tv", "originals.md5")), present_ids, 2)
+    vartab = filter_catalog(text(os.path.join(ROOT, "tv", "variants.tab")), present_ids, 1)
+
+    def tv_file(name):
+        return text(os.path.join(ROOT, "tv", name))
+
+    # tv-scripts.tar.gz: a self-contained dir that ctl.sh can run from over SSH
     tv = []
-    for f in sorted(os.listdir(os.path.join(ROOT, "tv"))):
-        tv.append(("tv/" + f, text(os.path.join(ROOT, "tv", f)), 0o755 if f in EXECUTABLE else 0o644))
-    scripts = tar_gz([("tv/", None, 0o755)] + tv)
+    for f in ("ctl.sh", "autostart.sh", "install.sh", "uninstall.sh"):
+        tv.append(("tv/" + f, tv_file(f), 0o755))
+    tv.append(("tv/originals.md5", originals, 0o644))
+    tv.append(("tv/variants.tab", vartab, 0o644))
+    tv.append(("tv/VERSION", (version + "\n").encode(), 0o644))
+    for vid, so, _ in variants:
+        tv.append(("tv/plugins/%s/libgstmatroska.so" % vid, so, 0o755))
+    scripts = tar_gz(with_parents(tv))
 
     # ipk
     base = "usr/palm/applications/%s/" % app_id
@@ -102,11 +156,16 @@ def main():
         files.append((base + f, data, 0o644))
     for f in ("LICENSE", "THIRD-PARTY-NOTICES.md"):
         files.append((base + f, text(os.path.join(ROOT, f)), 0o644))
+
     payload = base + "payload/"
-    files.append((payload + "libgstmatroska.so", so, 0o755))
+    for vid, so, _ in variants:
+        files.append((payload + "plugins/%s/libgstmatroska.so" % vid, so, 0o755))
+    files.append((payload + "originals.md5", originals, 0o644))
+    files.append((payload + "variants.tab", vartab, 0o644))
     files.append((payload + "VERSION", (version + "\n").encode(), 0o644))
-    for f in ("ctl.sh", "autostart.sh", "supported-originals.md5"):
-        files.append((payload + f, text(os.path.join(ROOT, "tv", f)), 0o755 if f in EXECUTABLE else 0o644))
+    files.append((payload + "ctl.sh", tv_file("ctl.sh"), 0o755))
+    files.append((payload + "autostart.sh", tv_file("autostart.sh"), 0o755))
+
     pkginfo = {
         "app": app_id, "id": app_id, "loc_name": app["title"],
         "package_format_version": 2, "vendor": app["vendor"], "version": version,
@@ -131,7 +190,7 @@ def main():
         "type": "web",
         "title": app["title"],
         "appDescription": app["appDescription"],
-        "iconUri": "https://raw.githubusercontent.com/kewe87/webos22-mkv-dolbyvision/main/app/largeIcon.png",
+        "iconUri": "https://raw.githubusercontent.com/kewe87/webos-mkv-dolbyvision/main/app/largeIcon.png",
         "sourceUrl": REPO_URL,
         "rootRequired": True,
         "ipkUrl": ipk_name,
@@ -139,7 +198,7 @@ def main():
     }
 
     outputs = {
-        "libgstmatroska.so": so,
+        "libgstmatroska.so": primary_so,
         "tv-scripts.tar.gz": scripts,
         ipk_name: ipk,
         "%s.manifest.json" % app_id: json.dumps(manifest, indent=2).encode() + b"\n",
@@ -151,6 +210,7 @@ def main():
         sums.append("%s  %s\n" % (hashlib.sha256(data).hexdigest(), name))
     with open(os.path.join(OUT, "SHA256SUMS"), "w", newline="\n") as f:
         f.writelines(sums)
+    print("variants bundled: %s" % ", ".join(sorted(present_ids)))
     print("".join(sums), end="")
 
 

@@ -2,3 +2,4 @@ out/
 *.so
 *.o
 *.mkv
+__pycache__/

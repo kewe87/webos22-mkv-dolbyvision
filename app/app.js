@@ -16,13 +16,13 @@ var DIAG_QR = 'issue';
 
 var TEXT = {
   en: {
-    subtitle: 'Patch for the webOS 22 system player (GStreamer)',
+    subtitle: 'System-wide Dolby Vision from MKV — a webOS GStreamer patch',
     intro: 'Makes MKV files play in real Dolby Vision instead of HDR10 – in every app (Emby, Plex, media ' +
       'player, USB, DLNA). Your files are not changed: the patcher puts an improved MKV demuxer over the one ' +
       'in LG\'s system player at startup, in RAM only; the firmware stays untouched. ' +
       'Requires a rooted TV with the Homebrew Channel.',
     footer: '© 2026 kewe87 · LGPL-2.1-or-later · Use at your own risk, no warranty · ' +
-      'github.com/kewe87/webos22-mkv-dolbyvision',
+      'github.com/kewe87/webos-mkv-dolbyvision',
     disclaimer: 'Disclaimer: this patcher changes how your TV\'s system player plays videos. It is an ' +
       'unofficial community project, not affiliated with LG or Dolby, and comes without any warranty. You use ' +
       'it at your own risk – no liability is accepted for damage to the device, data loss or loss of warranty.',
@@ -38,6 +38,17 @@ var TEXT = {
     active: 'Active',
     activeText: 'Dolby Vision from MKV is on and starts automatically with the TV. This app is no longer ' +
       'needed for that: it can be uninstalled, the patch stays active.',
+    activeSession: 'Active (this session)',
+    activeSessionText: 'Dolby Vision from MKV is on now, but only in RAM — a TV restart removes it. ' +
+      'Tick "Load automatically at boot" to keep it after every restart.',
+    activeNoPersist: 'Active until restart',
+    activeNoPersistText: 'Dolby Vision from MKV is on now. This firmware has no working boot-script hook, ' +
+      'so it cannot be made permanent: a restart removes it and you switch it on again each time.',
+    expNote: 'Experimental build for this TV model – not yet verified on real hardware. Test playback yourself.',
+    autostartOpt: 'Load automatically at boot',
+    autostartHint: 'Off, the patch lives in RAM and is gone after a restart. Ticked, it is re-applied at every boot.',
+    autostartHintNa: 'Not available: this firmware has no working boot-script hook (patched in newer webOS), ' +
+      'so the patch can only run until the next restart.',
     off: 'Off',
     offText: 'LG\'s original demuxer is used. MKV files play Dolby Vision as HDR10.',
     rebootOn: 'Restart required',
@@ -85,19 +96,21 @@ var TEXT = {
     dInstalled: 'Installed build',
     dApp: 'Build in this app',
     dOriginal: 'LG original',
-    dKnown: { official: 'tested', local: 'accepted on this TV', unknown: 'not tested' },
+    dKnown: { official: 'verified for this version', experimental: 'build unverified', local: 'accepted on this TV', unknown: 'no build for this version' },
     dSystem: 'webOS / GStreamer',
     dBoot: 'Boot script',
+    dAutostart: 'Autostart',
+    dAutoOn: 'on', dAutoOff: 'off (this session only)', dAutoNa: 'not available on this TV',
     none: '–'
   },
   de: {
-    subtitle: 'Patch für den Systemplayer von webOS 22 (GStreamer)',
+    subtitle: 'Systemweites Dolby Vision aus MKV — ein webOS-GStreamer-Patch',
     intro: 'Lässt MKV-Dateien in echtem Dolby Vision statt HDR10 laufen – in allen Apps (Emby, Plex, ' +
       'Mediaplayer, USB, DLNA). Deine Dateien werden nicht verändert: Der Patcher legt beim Start einen ' +
       'verbesserten MKV-Baustein über den in LGs Systemplayer, nur im Arbeitsspeicher; die Firmware bleibt ' +
       'unverändert. Benötigt einen gerooteten TV mit Homebrew Channel.',
     footer: '© 2026 kewe87 · LGPL-2.1-or-later · Nutzung auf eigene Gefahr, ohne Gewähr · ' +
-      'github.com/kewe87/webos22-mkv-dolbyvision',
+      'github.com/kewe87/webos-mkv-dolbyvision',
     disclaimer: 'Haftungsausschluss: Dieser Patcher verändert, wie der Systemplayer deines TVs Videos abspielt. ' +
       'Er ist ein inoffizielles Community-Projekt, nicht von LG oder Dolby, und wird ohne jede Gewähr ' +
       'bereitgestellt. Die Nutzung erfolgt auf eigene Gefahr – für Schäden am Gerät, Datenverlust oder den ' +
@@ -114,6 +127,18 @@ var TEXT = {
     active: 'Aktiv',
     activeText: 'Dolby Vision aus MKV ist an und startet automatisch mit dem TV. Dafür wird diese App nicht ' +
       'mehr gebraucht: Sie kann deinstalliert werden, der Patch bleibt aktiv.',
+    activeSession: 'Aktiv (nur jetzt)',
+    activeSessionText: 'Dolby Vision aus MKV ist jetzt an, aber nur im RAM – ein Neustart des TVs entfernt ' +
+      'es wieder. Setze den Haken „Beim Booten automatisch laden“, damit es nach jedem Neustart erhalten bleibt.',
+    activeNoPersist: 'Aktiv bis zum Neustart',
+    activeNoPersistText: 'Dolby Vision aus MKV ist jetzt an. Diese Firmware hat keinen funktionierenden ' +
+      'Boot-Skript-Haken, daher lässt es sich nicht dauerhaft machen: Ein Neustart entfernt es, und du ' +
+      'schaltest es jedes Mal neu ein.',
+    expNote: 'Experimenteller Build für dieses TV-Modell – noch nicht auf echter Hardware verifiziert. Wiedergabe bitte selbst testen.',
+    autostartOpt: 'Beim Booten automatisch laden',
+    autostartHint: 'Ohne Haken lebt der Patch im RAM und ist nach einem Neustart weg. Mit Haken wird er bei jedem Start neu angewendet.',
+    autostartHintNa: 'Nicht verfügbar: Diese Firmware hat keinen funktionierenden Boot-Skript-Haken (in neueren ' +
+      'webOS-Versionen gefixt), daher läuft der Patch nur bis zum nächsten Neustart.',
     off: 'Aus',
     offText: 'LGs Original wird verwendet. MKV-Dateien laufen mit Dolby Vision nur als HDR10.',
     rebootOn: 'Neustart nötig',
@@ -161,9 +186,11 @@ var TEXT = {
     dInstalled: 'Installierter Build',
     dApp: 'Build in dieser App',
     dOriginal: 'LG-Original',
-    dKnown: { official: 'getestet', local: 'auf diesem TV freigegeben', unknown: 'nicht getestet' },
+    dKnown: { official: 'für diese Version verifiziert', experimental: 'Build unverifiziert', local: 'auf diesem TV freigegeben', unknown: 'kein Build für diese Version' },
     dSystem: 'webOS / GStreamer',
     dBoot: 'Boot-Skript',
+    dAutostart: 'Autostart',
+    dAutoOn: 'an', dAutoOff: 'aus (nur diese Sitzung)', dAutoNa: 'auf diesem TV nicht verfügbar',
     none: '–'
   }
 };
@@ -177,6 +204,7 @@ var tvState = null; // not "status": that is window.status, a string
 var busy = false;
 var rooted = false;
 var bridges = [];
+var wantAutostart = false; // user's "load at boot" choice, applied when switching on
 
 // ---- luna / ctl.sh ----------------------------------------------------------
 
@@ -230,30 +258,42 @@ function render() {
   var s = tvState;
   $('version').textContent = s.version ? 'v' + s.version : '';
 
-  var wanted = s.linked && !s.disabledFlag;
+  // active, in autostart, and enabled          -> survives a reboot
+  // active, no link (or persist off), not disabled -> on for this session only
+  // active with the disable flag set            -> being switched off, mounted until reboot
+  var persisted = s.active && s.linked && !s.disabledFlag;
+  var sessionActive = s.active && !persisted && !s.disabledFlag;
   var stale = s.active && s.runningMd5 && s.runningMd5 !== s.installedMd5;
-  if (s.active && !wanted) setState('warn', T.rebootOff, T.rebootOffText);
+  if (s.active && s.disabledFlag) setState('warn', T.rebootOff, T.rebootOffText);
   else if (stale) setState('warn', T.rebootOn, T.rebootOnText);
   else if (s.active && s.updateAvailable) setState('warn', T.update, T.updateText);
-  else if (s.active) setState('ok', T.active, T.activeText);
+  else if (persisted) setState('ok', T.active, T.activeText);
+  else if (sessionActive && s.autostartAvailable) setState('ok', T.activeSession, T.activeSessionText);
+  else if (sessionActive) setState('warn', T.activeNoPersist, T.activeNoPersistText);
   else if (s.originalKnown === 'unknown') setState('', T.unsupported, T.unsupportedText);
-  else if (wanted) setState('bad', T.notActivated, T.failedText + s.autostartLog);
+  else if (s.linked && !s.disabledFlag) setState('bad', T.notActivated, T.failedText + s.autostartLog);
   else setState('', T.off, T.offText);
+  // keep the experimental-build caveat visible wherever switching on is possible
+  if (s.experimental && (s.active || s.originalKnown !== 'unknown'))
+    $('state-text').textContent += '  ·  ' + T.expNote;
 
   // On a TV the app does not support (unknown original), switching on / installing
   // is not offered – diagnostics only. Enabling needs a known, tested original.
   var supported = s.originalKnown !== 'unknown';
   var buttons = [];
-  if (s.active && wanted) {
+  if (s.active && !s.disabledFlag) {
     if (s.updateAvailable) buttons.push([T.install, enable]);
     buttons.push([T.disable, disable]);
   } else if (supported) {
     buttons.push([T.enable, enable]);
   }
+  // autostart is a user option (checkbox), shown whenever switching on is possible
+  renderAutostart(s, persisted, supported);
+  if (supported) buttons.push([T.check, check]); // load the build in isolation (handy for experimental)
   if (s.installed) buttons.push([s.p7 ? T.p7on : T.p7off, toggleP7]);
   buttons.push([T.diag, diag]);
   buttons.push([$('log').hidden ? T.showLog : T.hideLog, toggleLog]);
-  if ((s.active && !wanted) || stale) buttons.push([T.reboot, reboot]);
+  if ((s.active && s.disabledFlag) || stale) buttons.push([T.reboot, reboot]);
   if (s.installed) buttons.push([T.uninstall, uninstall, 'danger']);
 
   var focused = document.activeElement && document.activeElement.dataset.idx;
@@ -280,6 +320,7 @@ function render() {
     // libgstreamer-1.0.so.0.1802.0 -> 1.18.2
     [T.dSystem, (s.webosRelease || '?') + ' / ' +
       (s.gstreamer || '?').replace(/^(\d+)(\d\d)\.\d+$/, function (m, a, b) { return '1.' + a + '.' + Number(b); })],
+    [T.dAutostart, !s.autostartAvailable ? T.dAutoNa : (persisted ? T.dAutoOn : T.dAutoOff)],
     [T.dBoot, s.autostartLog || T.none]
   ];
   $('details').innerHTML = '';
@@ -294,6 +335,25 @@ function render() {
     tr.appendChild(b);
     $('details').appendChild(tr);
   });
+}
+
+// The "load at boot" checkbox. It is the single autostart control: before
+// switching on it records the choice (passed as --persist to enable); while
+// active it toggles the boot link live. Disabled when the firmware has no hook.
+function renderAutostart(s, persisted, supported) {
+  var box = $('autostart-opt'), cb = $('autostart-cb');
+  var show = supported || s.active;
+  box.hidden = !show;
+  if (!show) return;
+  var ok = !!s.autostartAvailable;
+  $('autostart-label').textContent = T.autostartOpt;
+  $('autostart-hint').textContent = ok ? T.autostartHint : T.autostartHintNa;
+  cb.disabled = !ok;
+  cb.checked = ok && (s.active ? persisted : wantAutostart);
+  cb.onchange = function () {
+    wantAutostart = cb.checked;
+    if (s.active) run(cb.checked ? persistOn : persistOff);
+  };
 }
 
 function confirmDialog(text, yesLabel, noLabel) {
@@ -355,14 +415,18 @@ function run(action) {
 }
 
 function enable() {
-  return ctl('enable').catch(function (e) {
-    if (e.code !== 'unknown-original') throw e;
-    return ctl('check')
-      .catch(function () { throw new Error(T.checkFailed); })
-      .then(function () { message(''); return confirmDialog(T.confirmForce); })
-      .then(function (yes) { if (yes) return ctl('enable --force'); });
+  // ctl.sh picks the plugin by GStreamer version and load-checks it itself when
+  // the variant is unverified or the original is new; a failed check comes back
+  // as code "check-failed".
+  var p = wantAutostart ? ' --persist' : '';
+  return ctl('enable' + p).catch(function (e) {
+    if (e.code === 'check-failed') throw new Error(T.checkFailed);
+    throw e;
   }).then(function (r) {
-    return r && r.result === 'reboot-required' ? T.rebootOnText : '';
+    if (!r) return '';
+    if (r.result === 'reboot-required') return T.rebootOnText;
+    if (r.autostart === 'unavailable') return T.autostartHintNa; // asked to persist but no hook
+    return '';
   });
 }
 
@@ -371,6 +435,10 @@ function disable() {
     return r.result === 'reboot-required' ? T.rebootOffText : '';
   });
 }
+
+// add / remove the autostart boot link without touching the live overlay
+function persistOn() { return ctl('persist on').then(function () { return ''; }); }
+function persistOff() { return ctl('persist off').then(function () { return ''; }); }
 
 function toggleP7() {
   return ctl('p7 ' + (tvState.p7 ? 'off' : 'on')).then(function () { return T.p7Later; });
@@ -400,7 +468,7 @@ function showDiag(p) {
   qr.innerHTML = '';
   qr.hidden = true;
   if (DIAG_QR === 'issue') {
-    var url = 'https://github.com/kewe87/webos22-mkv-dolbyvision/issues/new?title=' +
+    var url = 'https://github.com/kewe87/webos-mkv-dolbyvision/issues/new?title=' +
       encodeURIComponent(p.title || 'webOS port diagnostics') + '&body=' + encodeURIComponent(body);
     $('diag-intro').textContent = T.diagIntro + (p.reportPath || '');
     qr.hidden = false;
@@ -460,6 +528,14 @@ function uninstall() {
 
 // ---- remote control ---------------------------------------------------------
 
+// focusable controls on the main screen, in navigation order: the autostart
+// checkbox (when shown and usable) first, then the action buttons
+function actionList() {
+  var list = Array.prototype.slice.call($('actions').children);
+  if (!$('autostart-opt').hidden && !$('autostart-cb').disabled) list.unshift($('autostart-cb'));
+  return list;
+}
+
 document.addEventListener('keydown', function (e) {
   var key = e.keyCode;
   if (key === 461 || key === 8) { // Back
@@ -475,7 +551,7 @@ document.addEventListener('keydown', function (e) {
   e.preventDefault();
   var list = closeDialog ? [$('dialog-yes'), $('dialog-no')]
     : diagOpen ? [$('diag-close')]
-    : Array.prototype.slice.call($('actions').children);
+    : actionList();
   var i = list.indexOf(document.activeElement);
   var next = list[Math.max(0, Math.min(list.length - 1, i + dir))];
   if (next) next.focus();

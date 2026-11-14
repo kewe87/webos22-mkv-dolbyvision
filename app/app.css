@@ -25,6 +25,13 @@ h1 { margin: 0; font-size: 56px; font-weight: 600; }
 #state-title { font-size: 44px; font-weight: 600; }
 #state-text { margin-top: 8px; color: #b9bcd2; }
 
+#autostart-opt { margin-bottom: 26px; }
+.opt { display: flex; align-items: center; gap: 16px; font-size: 26px; cursor: pointer; }
+.opt input { width: 30px; height: 30px; accent-color: #f2b33d; }
+.opt input:focus { outline: 3px solid #fff; }
+.opt input:disabled { opacity: 0.4; }
+#autostart-hint { margin-top: 10px; color: #8a8ea8; font-size: 22px; line-height: 1.4; }
+
 .columns { display: flex; gap: 30px; }
 #actions { width: 620px; display: flex; flex-direction: column; gap: 12px; }
 .columns > .card:last-child { flex: 1; }

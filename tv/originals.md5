@@ -1,0 +1,8 @@
+# Record of LG originals we have already seen, per bundled plugin variant. This is
+# NOT the gate anymore - the plugin is chosen by GStreamer version (variants.tab).
+# It only lets ctl.sh skip the isolated re-check for an already-seen original, and
+# documents which exact models/firmware a variant was confirmed against. A new
+# original on a known GStreamer version is fine; it is load-checked once and added.
+# columns: <original-md5>  <variant (gst version)>  <label>
+03c05cab90877c78271c99617f21b5b3  gst-1.18.2  LG 86QNED916QE (K8HP), webOS 22, firmware 04.60.91
+ebd9456b7c3e6136544269da22efede4  gst-1.16.2  LG OLED65C11LB (O20/o20n), webOS 6.5.3, firmware 03.53.45

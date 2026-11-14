@@ -3,13 +3,13 @@
 <html>
 <head>
   <meta charset="utf-8">
-  <title>MKV Dolby Vision Patcher</title>
+  <title>GStreamer DV MKV Patcher</title>
   <link rel="stylesheet" href="app.css">
 </head>
 <body>
   <main>
     <header>
-      <h1>MKV Dolby Vision Patcher</h1>
+      <h1>GStreamer DV MKV Patcher</h1>
       <span id="version"></span>
     </header>
     <div id="subtitle"></div>
@@ -19,6 +19,11 @@
       <div id="state-title">…</div>
       <div id="state-text"></div>
       <p id="message" hidden></p>
+    </section>
+
+    <section id="autostart-opt" class="card" hidden>
+      <label class="opt"><input type="checkbox" id="autostart-cb"> <span id="autostart-label"></span></label>
+      <div id="autostart-hint" class="hint"></div>
     </section>
 
     <div class="columns">

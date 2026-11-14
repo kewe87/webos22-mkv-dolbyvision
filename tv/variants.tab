@@ -1,0 +1,8 @@
+# bundled plugin variant  ->  GStreamer version it is built against  ->  trust
+# The variant is named purely by GStreamer version, because that is what the plugin
+# binds to (ABI soname + LG's smart-property API) - stable within a webOS major and
+# identical across TV models. Trust is per GStreamer version: once a variant is
+# confirmed on real hardware, every TV on that version counts as verified.
+# columns: <variant>  <gstreamer>  <verified|experimental>
+gst-1.18.2  1.18.2  verified
+gst-1.16.2  1.16.2  experimental
