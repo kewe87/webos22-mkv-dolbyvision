@@ -237,8 +237,8 @@ The video caps must contain `dolby-vision=(boolean)true, dolby-vision-profile=(i
 - Dolby, Dolby Vision and the double-D symbol are trademarks of Dolby Laboratories. This project is not
   affiliated with or endorsed by Dolby or LG.
 
-**AI disclosure:** the code was developed with substantial help from an AI assistant (an AI assistant by
-). It was built, tested and reviewed on a real TV by the maintainer, who is responsible for it.
+**AI disclosure:** the code was developed with substantial help from an AI assistant. It was built,
+tested and reviewed on a real TV by the maintainer, who is responsible for it.
 
 ---
 
