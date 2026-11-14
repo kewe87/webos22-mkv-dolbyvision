@@ -1,6 +1,6 @@
 {
   "id": "io.github.kewe87.mkvdv",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "vendor": "kewe87",
   "type": "web",
   "main": "index.html",
@@ -10,5 +10,5 @@
   "iconColor": "#1b1f3b",
   "resolution": "1920x1080",
   "disableBackHistoryAPI": true,
-  "appDescription": "Play MKV files in Dolby Vision instead of HDR10 on a rooted LG TV, by patching the webOS GStreamer matroska demuxer (webOS 22 verified, webOS 6/C1 experimental)"
+  "appDescription": "Play MKV files in Dolby Vision instead of HDR10 on a rooted LG TV, by patching the webOS GStreamer matroska demuxer (webOS 22 verified; webOS 6/C1 and webOS 5 experimental)"
 }

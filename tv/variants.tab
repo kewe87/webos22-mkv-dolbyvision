@@ -6,3 +6,4 @@
 # columns: <variant>  <gstreamer>  <verified|experimental>
 gst-1.18.2  1.18.2  verified
 gst-1.16.2  1.16.2  experimental
+gst-1.14.4  1.14.4  experimental

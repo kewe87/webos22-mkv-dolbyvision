@@ -40,6 +40,7 @@ VARIANTS = [
     # additional variants are placed under out/plugins/<variant>/libgstmatroska.so
     # (gitignored, built separately); skipped if absent.
     ("gst-1.16.2", os.path.join(ROOT, "out", "plugins", "gst-1.16.2", "libgstmatroska.so"), False),
+    ("gst-1.14.4", os.path.join(ROOT, "out", "plugins", "gst-1.14.4", "libgstmatroska.so"), False),
 ]
 
 
